@@ -38,6 +38,10 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   seconds and `debug_silence_sec` (60) trims leading/trailing silence on close
   (all-silent files are deleted). This stops idle monitor sessions ballooning
   into hundreds of MB of near-silence.
+- Startup prune: `prune_debug_dir_startup` deletes all-silent debug WAVs
+  before retention runs, so idle churn can't evict the few speech-bearing
+  captures. (The daughter's 06:04–06:08 captures were lost to retention before
+  this existed; re-record to analyze her speech.)
 
 ## Hotkeys (Hyprland)
 - F10 / Shift+F10: outgoing PTT en→es / es→en.
