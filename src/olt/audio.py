@@ -56,6 +56,7 @@ class Capture:
         self.proc: asyncio.subprocess.Process | None = None
         self._wav: wave.Wave_write | None = None
         self._wav_path: Path | None = None
+        self._wav_frames: int = 0
 
     async def start(self) -> None:
         cmd = [
@@ -83,6 +84,7 @@ class Capture:
             self._wav.setnchannels(CHANNELS)
             self._wav.setsampwidth(2)
             self._wav.setframerate(RATE)
+            self._wav_frames = 0
             log.info("capture dump enabled: %s", self._wav_path)
         log.info("capture started on %s", self.device)
 
@@ -97,6 +99,12 @@ class Capture:
         if self._wav is not None:
             self._wav.close()
             self._wav = None
+            # A capture with no audio is useless for analysis; drop it.
+            if self._wav_path is not None and self._wav_frames == 0:
+                try:
+                    self._wav_path.unlink()
+                except OSError:
+                    pass
         log.info("capture stopped on %s", self.device)
 
     async def read_chunk(self, ms: int = 160) -> bytes:
@@ -109,6 +117,7 @@ class Capture:
             chunk = exc.partial
         if self._wav is not None and chunk:
             self._wav.writeframes(chunk)
+            self._wav_frames += len(chunk) // 2
         return chunk
 
 
