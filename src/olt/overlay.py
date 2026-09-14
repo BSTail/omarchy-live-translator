@@ -159,7 +159,7 @@ class OverlayApp:
         self.entries = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.scroll.set_propagate_natural_height(False)
+        self.scroll.set_propagate_natural_height(True)
         self.scroll.set_child(self.entries)
         self.card_box.append(self.scroll)
 
@@ -175,17 +175,19 @@ class OverlayApp:
         self.window.set_visible(False)
 
     def _relayout(self) -> None:
-        """Keep the newest entry at the top and cap the panel at the monitor
-        height so content scrolls instead of overflowing the screen."""
+        """Cap the panel at the monitor height so content scrolls instead of
+        overflowing the screen. The ScrolledWindow reports its natural height
+        as min(content, max), so the window grows with content up to the cap."""
         try:
             monitor = Gtk4LayerShell.get_monitor(self.window)
             if monitor is None:
                 return
             geo = monitor.get_geometry()
-            # 12px top + 12px bottom layer margins + card padding/border.
-            avail = max(120, geo.height - 48)
-            natural = self.entries.get_preferred_height()[1]
-            self.scroll.set_size_request(-1, min(natural, avail))
+            # 12px top + 12px bottom layer margins + card padding/border +
+            # hint label. The window is top-anchored, so its height is bounded
+            # by the monitor height below it.
+            max_h = max(120, geo.height - 48)
+            self.scroll.set_max_content_height(max_h)
             # Newest is prepended at the top; keep it visible.
             adj = self.scroll.get_vadjustment()
             adj.set_value(0)
