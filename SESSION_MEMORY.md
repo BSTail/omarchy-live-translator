@@ -51,13 +51,19 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 - Git repo (source of truth): `BSTail/omarchy-live-translator`, local clone `/tmp/opencode/olt`
 
 ## Last completed tasks
-1. Added "Clear logs & history" button (deletes olt.log*, events.jsonl, clears overlay; service keeps running).
-2. Fixed Gtk-CRITICAL overlay assertions by updating entries in place.
-3. Before that: latency telemetry + JSONL event log + diagnostics latency summary.
-4. Before that: history toggle, multimedia mode, unified scrollable overlay.
+1. Enabled glossary + multimedia defaults; fixed config loading (main() now calls load()).
+2. Incoming stream now restarts on multimedia/glossary/direction toggles (EOU/contexts are connect-time).
+3. Hardened ASR frame decode (malformed frames skipped, not fatal).
+4. Reverse direction EN→ES verified end-to-end (JFK clip → Spanish).
+5. Before that: clear-logs button, Gtk-CRITICAL fix, latency telemetry + JSONL log.
 
 ## Next up (user's priority)
-- Package as an Omarchy plugin (installer, config, docs).
+- Word boosting is currently a no-op: the shipped GGUF lacks the embedded
+  SentencePiece proto (`asr.tokenizer.spm_model`), so nemo-speech logs
+  "boosting disabled". To make the glossary work we need to reconvert the
+  model with the tokenizer embedded (convert_model.py) or find a GGUF that
+  carries it. Investigate next.
+- Then: package as an Omarchy plugin (installer, config, docs).
 - Then: real video/voice call test; endpointing/VAD tuning; Phase 2 incoming
   speech-to-speech (opt-in). Model/voice management deferred.
 
