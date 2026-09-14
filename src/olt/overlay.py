@@ -10,6 +10,10 @@ protocol over stdin. Each line is a command:
     {"cmd": "clear_all"}
     {"cmd": "hint", "text": "reconnecting…"}
 
+All cards live inside a single window (one themed panel). The panel is capped
+at the screen height; when more translations arrive than fit, the content
+scrolls.
+
 Theming follows the active Omarchy theme: the overlay reads the current
 theme's colors.toml (bg/fg/accent/green) and builds a CSS provider from those
 colors. If no Omarchy theme is found it falls back to GTK named colors.
@@ -46,6 +50,23 @@ def build_css(theme: dict) -> str:
     accent = theme.get("accent", "@accent_color")
     green = theme.get("green", "@success_color")
 
+    entries = f"""
+box.olt-entry {{
+    border-bottom: 1px solid alpha({fg}, 0.12);
+    padding-bottom: 6px;
+}}
+box.olt-entry:last-child {{
+    border-bottom: none;
+    padding-bottom: 0;
+}}
+label.olt-src {{ color: alpha({light_fg}, 0.65); font-size: 0.9em; }}
+label.olt-target {{ color: {fg}; }}
+label.olt-draft {{ color: alpha({fg}, 0.55); }}
+label.olt-ready {{ color: {fg}; }}
+label.olt-spoken {{ color: {green}; }}
+label.olt-incoming {{ color: {accent}; }}
+"""
+
     grad = border_gradient_css(theme)
     if grad:
         # Gradient border: the outer box paints the theme's active-border
@@ -65,12 +86,7 @@ box.card {{
     border-radius: 8px;
     padding: 8px;
 }}
-label.olt-src {{ color: alpha({light_fg}, 0.65); font-size: 0.9em; }}
-label.olt-target {{ color: {fg}; }}
-label.olt-draft {{ color: alpha({fg}, 0.55); }}
-label.olt-ready {{ color: {fg}; }}
-label.olt-spoken {{ color: {green}; }}
-label.olt-incoming {{ color: {accent}; }}
+{entries}
 """
     return f"""
 window.olt-root {{
@@ -83,12 +99,7 @@ box.card {{
     border-radius: 8px;
     padding: 8px;
 }}
-label.olt-src {{ color: alpha({light_fg}, 0.65); font-size: 0.9em; }}
-label.olt-target {{ color: {fg}; }}
-label.olt-draft {{ color: alpha({fg}, 0.55); }}
-label.olt-ready {{ color: {fg}; }}
-label.olt-spoken {{ color: {green}; }}
-label.olt-incoming {{ color: {accent}; }}
+{entries}
 """
 
 
@@ -133,19 +144,48 @@ class OverlayApp:
         # paints a default (black) background behind the themed cards.
         self.window.add_css_class("olt-root")
 
-        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.box.set_vexpand(False)
-        self.window.set_child(self.box)
+        # One themed panel holds every translation entry.
+        self.border = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.border.add_css_class("card-border")
+
+        self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.card.add_css_class("card")
 
         self.hint_label = Gtk.Label(label="")
         self.hint_label.set_wrap(True)
         self.hint_label.set_halign(Gtk.Align.START)
-        self.box.append(self.hint_label)
+        self.card.append(self.hint_label)
+
+        self.entries = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.scroll = Gtk.ScrolledWindow()
+        self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.scroll.set_propagate_natural_height(True)
+        self.scroll.set_child(self.entries)
+        self.card.append(self.scroll)
+
+        self.border.append(self.card)
+        self.window.set_child(self.border)
 
         self.cards: dict[str, Gtk.Box] = {}
 
+        self.window.connect("map", lambda *_: self._cap_height())
+
         # Hidden until the first card appears (e.g. F10 press).
         self.window.set_visible(False)
+
+    def _cap_height(self) -> None:
+        """Cap the panel at the monitor height so content scrolls instead of
+        overflowing the screen."""
+        try:
+            monitor = Gtk4LayerShell.get_monitor(self.window)
+            if monitor is None:
+                return
+            geo = monitor.get_geometry()
+            # 12px top + 12px bottom layer margins + card padding/border.
+            max_h = max(120, geo.height - 48)
+            self.scroll.set_max_content_height(max_h)
+        except Exception:
+            pass
 
     def _update_visibility(self) -> None:
         visible = bool(self.cards) or bool(self.hint_label.get_text())
@@ -163,41 +203,35 @@ class OverlayApp:
 
     def card(self, card_id: str, direction: str, source: str, target: str, state: str):
         if card_id in self.cards:
-            self.box.remove(self.cards[card_id])
+            self.entries.remove(self.cards[card_id])
         state_class = STATE_CLASS.get(state, "olt-draft")
 
-        # Outer border box carries the Omarchy gradient border; the inner card
-        # box carries the theme background.
-        border = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        border.add_css_class("card-border")
-
-        frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        frame.add_css_class("card")
+        entry = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        entry.add_css_class("olt-entry")
 
         if direction == "out":
-            frame.append(self._label(source, "olt-src"))
-            frame.append(self._label(target, state_class))
+            entry.append(self._label(source, "olt-src"))
+            entry.append(self._label(target, state_class))
         else:
-            frame.append(self._label(target, state_class))
-            frame.append(self._label(source, "olt-src"))
+            entry.append(self._label(target, state_class))
+            entry.append(self._label(source, "olt-src"))
 
-        border.append(frame)
-        self.box.append(border)
-        self.cards[card_id] = border
+        self.entries.append(entry)
+        self.cards[card_id] = entry
         self._update_visibility()
 
     def state(self, card_id: str, state: str):
         pass
 
     def clear(self, card_id: str):
-        frame = self.cards.pop(card_id, None)
-        if frame is not None:
-            self.box.remove(frame)
+        entry = self.cards.pop(card_id, None)
+        if entry is not None:
+            self.entries.remove(entry)
         self._update_visibility()
 
     def clear_all(self):
-        for frame in self.cards.values():
-            self.box.remove(frame)
+        for entry in self.cards.values():
+            self.entries.remove(entry)
         self.cards.clear()
         self._update_visibility()
 
