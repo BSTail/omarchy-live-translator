@@ -34,12 +34,12 @@ source_language = "es-ES"
 target = "en"
 source_device = "@DEFAULT_MONITOR@"
 endpointing_ms = 800
-multimedia = false
+multimedia = true
 multimedia_endpointing_ms = 1600
 
 [glossary]
-enabled = false
-phrases = []
+enabled = true
+phrases = ["Matt", "Mat", "Mac", "Max", "amat", "mc", "mcway", "Roblox", "Robus", "Roblo", "robla"]
 boost = 3.0
 
 [activation]

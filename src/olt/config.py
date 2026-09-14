@@ -54,7 +54,7 @@ class IncomingConfig:
     # Multimedia mode: media audio is continuous, so use a longer EOU window
     # to segment long unbroken speech into cards instead of waiting for a
     # long silence that never comes.
-    multimedia: bool = False
+    multimedia: bool = True
     multimedia_endpointing_ms: int = 1600
 
 

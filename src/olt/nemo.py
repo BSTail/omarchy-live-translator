@@ -186,7 +186,14 @@ class ASRStream:
                 return
             opcode, payload = frame
             if opcode == 1:  # text
-                yield json.loads(payload.decode())
+                try:
+                    yield json.loads(payload.decode())
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    # A desynced frame (e.g. capture teardown) can hand us a
+                    # raw WebSocket header byte instead of a JSON text payload.
+                    # Skip it rather than killing the incoming loop.
+                    log.warning("dropping malformed ASR frame (%d bytes)", len(payload))
+                    continue
             elif opcode == 8:  # close
                 return
 

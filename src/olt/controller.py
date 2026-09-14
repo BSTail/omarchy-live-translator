@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import audio, engines, logging, nemo
-from .config import Config
+from .config import Config, load
 
 log = logging.get()
 
@@ -547,9 +547,13 @@ class Controller:
             elif direction == "en-es":
                 self.cfg.incoming.source_language = "en-US"
                 self.cfg.incoming.target = "es"
+            self._restart_incoming()
             log.info("incoming direction set to %s", direction)
         if "multimedia" in settings:
             self.cfg.incoming.multimedia = bool(settings["multimedia"])
+            # The EOU window is baked into the live ASR stream at connect
+            # time, so a toggle needs a fresh stream to take effect.
+            self._restart_incoming()
             log.info("multimedia mode set to %s", self.cfg.incoming.multimedia)
         if "history" in settings:
             self.cfg.overlay.history = bool(settings["history"])
@@ -564,6 +568,7 @@ class Controller:
                     self.cfg.glossary.phrases = list(gl["phrases"])
                 if "boost" in gl:
                     self.cfg.glossary.boost = float(gl["boost"])
+            self._restart_incoming()
             log.info("glossary updated: enabled=%s phrases=%d",
                      self.cfg.glossary.enabled, len(self.cfg.glossary.phrases))
         if "activation" in settings:
@@ -584,6 +589,13 @@ class Controller:
             if dest in ("virtual_mic", "speakers"):
                 self.cfg.outgoing.output_destination = dest
                 log.info("output destination set to %s", dest)
+
+    def _restart_incoming(self) -> None:
+        """Reconnect the incoming stream so stream-level settings take effect."""
+        if self.incoming_task is not None and not self.incoming_task.done():
+            self.incoming_task.cancel()
+        if self.cfg.incoming.enabled:
+            self.incoming_task = asyncio.create_task(self.incoming())
 
     def clear_logs(self) -> None:
         """Delete all log files and translation history for this plugin.
@@ -648,7 +660,7 @@ class Controller:
 
 
 def main() -> None:
-    cfg = Config()
+    cfg = load()
     logging.setup(cfg.log_dir, cfg.log_level)
     logging.install_hooks()
     controller = Controller(cfg)
