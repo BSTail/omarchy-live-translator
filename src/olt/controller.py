@@ -76,19 +76,57 @@ class Controller:
         self._card_seq += 1
         return f"{direction}-{self._card_seq}"
 
+    def _speech_contexts(self) -> list[dict] | None:
+        if not self.cfg.glossary.enabled:
+            return None
+        phrases = [p.strip() for p in self.cfg.glossary.phrases if p.strip()]
+        if not phrases:
+            return None
+        return [{"phrases": phrases, "boost": float(self.cfg.glossary.boost)}]
+
+    def _activation_ok(self) -> bool:
+        """True when incoming/outgoing translation may run for the focused window."""
+        if not self.cfg.activation.enabled:
+            return True
+        want_class = self.cfg.activation.app_class.strip().lower()
+        want_title = self.cfg.activation.app_title.strip().lower()
+        if not want_class and not want_title:
+            return True
+        try:
+            out = subprocess.run(
+                ["hyprctl", "activewindow", "-j"],
+                capture_output=True, text=True, timeout=2,
+            ).stdout
+            data = json.loads(out)
+        except Exception:
+            return True  # can't tell; don't block translation
+        cls = (data.get("class") or "").lower()
+        title = (data.get("title") or "").lower()
+        if want_class and want_class not in cls:
+            return False
+        if want_title and want_title not in title:
+            return False
+        return True
+
     async def outgoing(self, source_lang: str, target: str, stop_event: asyncio.Event) -> None:
+        if not self._activation_ok():
+            log.info("outgoing blocked: focused window is not an allowed call app")
+            return
         card_id = self._next_card("out")
         self.overlay_send(
             {"cmd": "card", "id": card_id, "direction": "out",
              "source": "", "target": "", "state": "draft"}
         )
         cap = audio.Capture("@DEFAULT_SOURCE@")
-        stream = await self.asr.connect_stream(source_lang)
+        stream = await self.asr.connect_stream(
+            source_lang, speech_contexts=self._speech_contexts()
+        )
         await cap.start()
         log.info("outgoing started (%s→%s)", source_lang, target)
         partial = ""
         pump_task: asyncio.Task | None = None
         finalized = False
+        auto_speak_task: asyncio.Task | None = None
         try:
             async def pump():
                 while True:
@@ -129,11 +167,24 @@ class Controller:
                 log.warning("outgoing finalize timed out")
                 if partial and not finalized:
                     await self._finalize_outgoing(card_id, partial, source_lang, target)
+
+            if self.cfg.outgoing.auto_speak_after_ms > 0:
+                auto_speak_task = asyncio.create_task(
+                    self._auto_speak_after(self.cfg.outgoing.auto_speak_after_ms / 1000)
+                )
         finally:
             if pump_task and not pump_task.done():
                 pump_task.cancel()
             await cap.stop()
             await stream.close()
+            if auto_speak_task and not auto_speak_task.done():
+                auto_speak_task.cancel()
+
+    async def _auto_speak_after(self, delay_s: float) -> None:
+        await asyncio.sleep(delay_s)
+        if getattr(self, "_ready_card", None) is not None:
+            log.info("auto-speak after %.1fs", delay_s)
+            await self.speak_ready()
 
     async def _finalize_outgoing(
         self, card_id: str, text: str, source_lang: str, target: str
@@ -240,10 +291,14 @@ class Controller:
                 await asyncio.sleep(2)
 
     async def _incoming_once(self) -> None:
+        if not self._activation_ok():
+            await asyncio.sleep(0.5)
+            return
         cap = audio.Capture(self.cfg.incoming.source_device)
         stream = await self.asr.connect_stream(
             self.cfg.incoming.source_language,
             endpointing_ms=self.cfg.incoming.endpointing_ms,
+            speech_contexts=self._speech_contexts(),
         )
         await cap.start()
         card_id = self._next_card("in")
@@ -294,7 +349,10 @@ class Controller:
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):  # noqa: N802
-                self._reply(HTTPStatus.OK, {"status": "ok", "name": "olt-controller"})
+                if self.path.rstrip("/") == "/status":
+                    self._reply(HTTPStatus.OK, controller.status())
+                else:
+                    self._reply(HTTPStatus.OK, {"status": "ok", "name": "olt-controller"})
 
             def do_POST(self):  # noqa: N802
                 length = int(self.headers.get("Content-Length", 0))
@@ -386,6 +444,60 @@ class Controller:
                 0 if not settings["auto_speak"] else 3000
             )
             log.info("auto_speak set to %s", bool(settings["auto_speak"]))
+        if "incoming_direction" in settings:
+            direction = settings["incoming_direction"]
+            if direction == "es-en":
+                self.cfg.incoming.source_language = "es-ES"
+                self.cfg.incoming.target = "en"
+            elif direction == "en-es":
+                self.cfg.incoming.source_language = "en-US"
+                self.cfg.incoming.target = "es"
+            log.info("incoming direction set to %s", direction)
+        if "glossary" in settings:
+            gl = settings["glossary"]
+            if isinstance(gl, dict):
+                if "enabled" in gl:
+                    self.cfg.glossary.enabled = bool(gl["enabled"])
+                if "phrases" in gl:
+                    self.cfg.glossary.phrases = list(gl["phrases"])
+                if "boost" in gl:
+                    self.cfg.glossary.boost = float(gl["boost"])
+            log.info("glossary updated: enabled=%s phrases=%d",
+                     self.cfg.glossary.enabled, len(self.cfg.glossary.phrases))
+        if "activation" in settings:
+            act = settings["activation"]
+            if isinstance(act, dict):
+                if "enabled" in act:
+                    self.cfg.activation.enabled = bool(act["enabled"])
+                if "app_class" in act:
+                    self.cfg.activation.app_class = str(act["app_class"])
+                if "app_title" in act:
+                    self.cfg.activation.app_title = str(act["app_title"])
+            log.info("activation updated: enabled=%s class=%r title=%r",
+                     self.cfg.activation.enabled,
+                     self.cfg.activation.app_class,
+                     self.cfg.activation.app_title)
+
+    def status(self) -> dict:
+        incoming_running = self.incoming_task is not None and not self.incoming_task.done()
+        return {
+            "status": "ok",
+            "name": "olt-controller",
+            "direction": "en-es" if self.cfg.outgoing.language.startswith("en") else "es-en",
+            "auto_speak": self.cfg.outgoing.auto_speak_after_ms > 0,
+            "incoming_enabled": incoming_running,
+            "incoming_direction": "es-en" if self.cfg.incoming.source_language.startswith("es") else "en-es",
+            "glossary": {
+                "enabled": self.cfg.glossary.enabled,
+                "phrases": self.cfg.glossary.phrases,
+                "boost": self.cfg.glossary.boost,
+            },
+            "activation": {
+                "enabled": self.cfg.activation.enabled,
+                "app_class": self.cfg.activation.app_class,
+                "app_title": self.cfg.activation.app_title,
+            },
+        }
 
     # -- lifecycle ---------------------------------------------------------
 

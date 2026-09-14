@@ -24,7 +24,7 @@ sample_rate = 22050
 language = "en-US"
 target = "es"
 auto_speak_after_ms = 0
-output_destination = "virtual_mic"   # "virtual_mic" or "speakers"
+output_destination = "speakers"
 virtual_mic = "olt-virtual-mic"
 speakers_sink = "@DEFAULT_SINK@"
 
@@ -34,6 +34,16 @@ source_language = "es-ES"
 target = "en"
 source_device = "@DEFAULT_MONITOR@"
 endpointing_ms = 800
+
+[glossary]
+enabled = false
+phrases = []
+boost = 3.0
+
+[activation]
+enabled = false
+app_class = ""
+app_title = ""
 
 [overlay]
 position = "top-right"

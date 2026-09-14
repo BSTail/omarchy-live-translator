@@ -1,6 +1,4 @@
 import QtQuick
-import Quickshell
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -8,66 +6,69 @@ BarWidget {
   id: root
   moduleName: "bstail.live-translator"
 
-  // Green when the translation service is running, muted otherwise.
-  readonly property bool running: statusText === "running"
-  property string statusText: "unknown"
-
-  property QtObject shell: null
-
-  function refreshStatus() {
-    statusProbe.running = false
-    statusProbe.running = true
+  function injectPanel() {
+    var target = panelLoader.item
+    if (!target) return
+    if ("bar" in target) target.bar = root.bar
+    if ("settings" in target) target.settings = root.settings
+    if ("anchorItem" in target) target.anchorItem = button
+    if ("hostWidget" in target) target.hostWidget = root
   }
 
-  Process {
-    id: statusProbe
-    command: ["systemctl", "--user", "is-active", "omarchy-live-translator.service"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var s = String(text || "").trim()
-        root.statusText = (s === "active") ? "running" : "stopped"
-      }
-    }
+  function refresh() {
+    if (panelLoader.item && panelLoader.item.refreshStatus) panelLoader.item.refreshStatus()
   }
 
-  Component.onCompleted: root.refreshStatus()
-
-  Timer {
-    interval: 5000
-    running: true
-    repeat: true
-    onTriggered: root.refreshStatus()
+  function togglePanel() {
+    if (panelLoader.item && panelLoader.item.toggle) panelLoader.item.toggle()
   }
 
+  readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
+
+  function open() {
+    if (panelLoader.item && panelLoader.item.openFromHotkey) panelLoader.item.openFromHotkey()
+  }
+
+  function close() {
+    if (panelLoader.item && panelLoader.item.close) panelLoader.item.close()
+  }
+
+  readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
+
+  function closeForPopoutSwitch() {
+    if (panelLoader.item) panelLoader.item.closeForPopoutSwitch()
+  }
+
+  visible: panelLoader.item && panelLoader.item.label !== ""
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  BarIconButton {
-    id: button
-    bar: root.bar
-    text: "\uf1ab" // fa-language glyph
-    tooltipText: root.running ? "Live Translator — running" : "Live Translator — stopped"
-    active: root.running
-    useActiveColor: false
-    onPressed: function(b) {
-      if (b === Qt.LeftButton) root.toggleService()
-      else if (b === Qt.RightButton) root.refreshStatus()
+  onBarChanged: injectPanel()
+  onSettingsChanged: injectPanel()
+
+  Loader {
+    id: panelLoader
+    active: true
+    source: Qt.resolvedUrl("Panel.qml")
+    visible: false
+    onLoaded: {
+      root.injectPanel()
+      Qt.callLater(root.injectPanel)
     }
   }
 
-  function toggleService() {
-    var action = root.running ? "stop" : "start"
-    var proc = toggleProc
-    proc.action = action
-    proc.running = false
-    proc.running = true
-  }
+  BarIconButton {
+    id: button
+    anchors.fill: parent
+    bar: root.bar
+    text: panelLoader.item ? panelLoader.item.label : ""
+    slotSize: Style.bar.statusSlot
+    tooltipText: ""
 
-  Process {
-    id: toggleProc
-    property string action: ""
-    command: ["systemctl", "--user", toggleProc.action, "omarchy-live-translator.service", "libretranslate-live.service"]
-    onRunningChanged: if (!running) root.refreshStatus()
+    onPressed: function(b) {
+      if (!root.bar) return
+      if (b === Qt.RightButton) root.refresh()
+      else root.togglePanel()
+    }
   }
 }

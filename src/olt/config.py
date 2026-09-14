@@ -54,6 +54,20 @@ class IncomingConfig:
 
 
 @dataclass
+class GlossaryConfig:
+    enabled: bool = False
+    phrases: list[str] = field(default_factory=list)
+    boost: float = 3.0
+
+
+@dataclass
+class ActivationConfig:
+    enabled: bool = False
+    app_class: str = ""  # e.g. "zoom", "teams"; empty = any window
+    app_title: str = ""  # optional title substring match
+
+
+@dataclass
 class OverlayConfig:
     position: str = "top-right"
 
@@ -72,6 +86,8 @@ class Config:
     tts: TTSConfig = field(default_factory=TTSConfig)
     outgoing: OutgoingConfig = field(default_factory=OutgoingConfig)
     incoming: IncomingConfig = field(default_factory=IncomingConfig)
+    glossary: GlossaryConfig = field(default_factory=GlossaryConfig)
+    activation: ActivationConfig = field(default_factory=ActivationConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     control_port: int = 8670
     log_dir: str = str(Path.home() / ".local" / "state" / "omarchy-live-translator")
@@ -134,6 +150,16 @@ def load(path: str | None = None) -> Config:
     cfg.incoming.target = inc.get("target", cfg.incoming.target)
     cfg.incoming.source_device = inc.get("source_device", cfg.incoming.source_device)
     cfg.incoming.endpointing_ms = inc.get("endpointing_ms", cfg.incoming.endpointing_ms)
+
+    gl = section("glossary")
+    cfg.glossary.enabled = gl.get("enabled", cfg.glossary.enabled)
+    cfg.glossary.phrases = list(gl.get("phrases", cfg.glossary.phrases))
+    cfg.glossary.boost = gl.get("boost", cfg.glossary.boost)
+
+    act = section("activation")
+    cfg.activation.enabled = act.get("enabled", cfg.activation.enabled)
+    cfg.activation.app_class = act.get("app_class", cfg.activation.app_class)
+    cfg.activation.app_title = act.get("app_title", cfg.activation.app_title)
 
     ovl = section("overlay")
     cfg.overlay.position = ovl.get("position", cfg.overlay.position)

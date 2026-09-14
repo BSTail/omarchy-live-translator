@@ -1,6 +1,8 @@
 #!/bin/bash
 # Send a control command to the running omarchy-live-translator controller.
 # Usage: olt-ctl <action> [--source <lang>] [--target <lang>]
+#        olt-ctl status
+#        olt-ctl diagnostics
 
 set -u
 
@@ -18,8 +20,28 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$ACTION" ]; then
-    echo "usage: $0 <ptt_start|ptt_stop|speak|clear|pause_incoming>" >&2
+    echo "usage: $0 <ptt_start|ptt_stop|speak|clear|pause_incoming|status|diagnostics>" >&2
     exit 2
+fi
+
+if [ "$ACTION" = "diagnostics" ]; then
+    echo "=== omarchy-live-translator diagnostics ==="
+    echo
+    echo "--- service state ---"
+    systemctl --user is-active omarchy-live-translator.service libretranslate-live.service 2>&1
+    echo
+    echo "--- controller status ---"
+    curl -fsS --max-time 3 http://127.0.0.1:8670/status 2>&1 || echo "(controller not responding)"
+    echo
+    echo "--- recent log (olt) ---"
+    journalctl --user -t olt --no-pager -n 40 2>&1
+    echo
+    echo "--- recent log (libretranslate-live) ---"
+    journalctl --user -u libretranslate-live.service --no-pager -n 20 2>&1
+    echo
+    echo "--- hardware / engine ---"
+    ~/.local/bin/nemo-speech doctor 2>&1 || echo "(nemo-speech doctor failed)"
+    exit 0
 fi
 
 python3 - "$ACTION" "$SOURCE" "$TARGET" <<'EOF'
@@ -30,6 +52,14 @@ if source:
     msg["source_lang"] = source
 if target:
     msg["target"] = target
+if action == "status":
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8670/status", timeout=5) as r:
+            print(json.dumps(json.loads(r.read()), indent=2))
+    except Exception as e:
+        print(f"olt-ctl: {e}", file=sys.stderr)
+        sys.exit(1)
+    sys.exit(0)
 req = urllib.request.Request(
     "http://127.0.0.1:8670/ctl",
     data=json.dumps(msg).encode(),

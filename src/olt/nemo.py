@@ -121,7 +121,11 @@ class NemoASR:
     # -- WebSocket ---------------------------------------------------------
 
     async def connect_stream(
-        self, language: str, sample_rate: int = 16000, endpointing_ms: int | None = None
+        self,
+        language: str,
+        sample_rate: int = 16000,
+        endpointing_ms: int | None = None,
+        speech_contexts: list[dict] | None = None,
     ) -> "ASRStream":
         reader, writer = await asyncio.open_connection(self.cfg.host, self.cfg.port)
         await _ws_handshake(writer, reader, self.cfg.host, self.cfg.port)
@@ -129,6 +133,8 @@ class NemoASR:
         session = {"language": language, "sample_rate": sample_rate}
         if endpointing_ms is not None:
             session["endpointing_ms"] = endpointing_ms
+        if speech_contexts:
+            session["speech_contexts"] = speech_contexts
         await stream.send_json({"type": "session.update", "session": session})
         return stream
 
