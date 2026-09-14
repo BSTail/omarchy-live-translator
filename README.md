@@ -123,14 +123,15 @@ The controller process and overlay state machine are specified in
 ### In progress
 
 - [x] Design the controller process and overlay state machine.
-- [ ] Implement the controller process (Python, asyncio).
+- [x] Implement the controller process (Python, asyncio): config, logging,
+      NeMo ASR client, LibreTranslate + Piper clients, audio capture, GTK4
+      overlay, and control server.
+- [ ] Wire Hyprland hotkeys and run end-to-end.
 
 ### To do
 
-- [ ] Capture incoming audio via PipeWire monitor source (call audio → ASR).
-- [ ] Wire outgoing push-to-talk (mic → ASR → NMT → overlay → TTS → virtual mic).
-- [ ] Build the floating bilingual overlay with Draft / Ready / Spoken states.
-- [ ] Add Hyprland hotkeys (separate from the F9 dictation plugin).
+- [ ] Wire Hyprland hotkeys (separate from the F9 dictation plugin).
+- [ ] Install as a systemd user service; first live-call test.
 - [ ] Endpointing / VAD for automatic incoming segmentation.
 - [ ] Latency tuning for live calls (chunk size, streaming config).
 - [ ] Phase 2: incoming speech-to-speech into headphones (opt-in).

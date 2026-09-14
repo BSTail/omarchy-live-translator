@@ -1,0 +1,13 @@
+[Unit]
+Description=Omarchy Live Translator (offline en<->es speech translation)
+After=libretranslate.service sound.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m olt
+Environment=PYTHONPATH=%h/.local/share/omarchy-live-translator/src
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

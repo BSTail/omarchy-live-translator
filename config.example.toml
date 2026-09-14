@@ -1,0 +1,40 @@
+# omarchy-live-translator configuration
+# Copy to ~/.config/omarchy-live-translator/config.toml and edit as needed.
+
+[paths]
+nemo_speech = "~/.local/bin/nemo-speech"
+piper = "~/.local/bin/piper"
+libretranslate_url = "http://127.0.0.1:5000"
+
+[asr]
+model = "nemotron-3.5"
+device = "vulkan:0"
+preload_stdcxx = true
+host = "127.0.0.1"
+port = 8080
+
+[tts]
+engine = "piper"
+voice_en = "en_US-lessac-medium"
+voice_es = "es_ES-davefx-medium"
+voices_dir = "~/.local/share/piper/voices"
+sample_rate = 22050
+
+[outgoing]
+language = "en-US"
+target = "es"
+auto_speak_after_ms = 0
+virtual_mic = "olt-virtual-mic"
+
+[incoming]
+enabled = true
+source_language = "es-ES"
+target = "en"
+source_device = "@DEFAULT_MONITOR@"
+
+[overlay]
+position = "top-right"
+
+control_port = 8670
+log_dir = "~/.local/state/omarchy-live-translator"
+log_level = "INFO"
