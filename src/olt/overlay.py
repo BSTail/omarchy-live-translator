@@ -159,7 +159,7 @@ class OverlayApp:
         self.entries = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.scroll.set_propagate_natural_height(True)
+        self.scroll.set_propagate_natural_height(False)
         self.scroll.set_child(self.entries)
         self.card_box.append(self.scroll)
 
@@ -168,22 +168,26 @@ class OverlayApp:
 
         self.cards: dict[str, Gtk.Box] = {}
 
-        self.window.connect("map", lambda *_: self._cap_height())
+        self.window.connect("map", lambda *_: self._relayout())
 
         # Hidden until the first card appears (e.g. F10 press).
         self.window.set_visible(False)
 
-    def _cap_height(self) -> None:
-        """Cap the panel at the monitor height so content scrolls instead of
-        overflowing the screen."""
+    def _relayout(self) -> None:
+        """Keep the newest entry at the top and cap the panel at the monitor
+        height so content scrolls instead of overflowing the screen."""
         try:
             monitor = Gtk4LayerShell.get_monitor(self.window)
             if monitor is None:
                 return
             geo = monitor.get_geometry()
             # 12px top + 12px bottom layer margins + card padding/border.
-            max_h = max(120, geo.height - 48)
-            self.scroll.set_max_content_height(max_h)
+            avail = max(120, geo.height - 48)
+            natural = self.entries.get_preferred_height()[1]
+            self.scroll.set_size_request(-1, min(natural, avail))
+            # Newest is prepended at the top; keep it visible.
+            adj = self.scroll.get_vadjustment()
+            adj.set_value(0)
         except Exception:
             pass
 
@@ -216,9 +220,10 @@ class OverlayApp:
             entry.append(self._label(target, state_class))
             entry.append(self._label(source, "olt-src"))
 
-        self.entries.append(entry)
+        self.entries.prepend(entry)
         self.cards[card_id] = entry
         self._update_visibility()
+        self._relayout()
 
     def state(self, card_id: str, state: str):
         pass
