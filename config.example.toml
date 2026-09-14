@@ -14,6 +14,7 @@ debug_keep = 20
 preprocess_enable = true
 highpass_hz = 120.0
 preamp_db = 6.0
+chunk_ms = 160
 
 [paths]
 nemo_speech = "~/.local/bin/nemo-speech"

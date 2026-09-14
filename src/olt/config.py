@@ -111,6 +111,9 @@ class Config:
     preprocess_enable: bool = True
     highpass_hz: float = 120.0
     preamp_db: float = 6.0
+    # Audio chunk size sent to the ASR WebSocket per frame (ms). Larger chunks
+    # reduce overhead; smaller chunks reduce latency.
+    chunk_ms: int = 160
 
 
 def _expand(path: str) -> str:
@@ -197,5 +200,6 @@ def load(path: str | None = None) -> Config:
     cfg.preprocess_enable = bool(data.get("preprocess_enable", cfg.preprocess_enable))
     cfg.highpass_hz = float(data.get("highpass_hz", cfg.highpass_hz))
     cfg.preamp_db = float(data.get("preamp_db", cfg.preamp_db))
+    cfg.chunk_ms = int(data.get("chunk_ms", cfg.chunk_ms))
 
     return cfg

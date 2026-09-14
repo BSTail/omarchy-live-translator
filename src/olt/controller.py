@@ -134,7 +134,7 @@ class Controller:
         try:
             async def pump():
                 while True:
-                    chunk = await cap.read_chunk(160)
+                    chunk = await cap.read_chunk(self.cfg.chunk_ms)
                     if not chunk:
                         break
                     await stream.send_audio(chunk)
@@ -368,7 +368,7 @@ class Controller:
             async def pump():
                 try:
                     while True:
-                        chunk = await cap.read_chunk(160)
+                        chunk = await cap.read_chunk(self.cfg.chunk_ms)
                         if not chunk:
                             break
                         await stream.send_audio(chunk)
@@ -602,6 +602,9 @@ class Controller:
         if "preamp_db" in settings:
             self.cfg.preamp_db = float(settings["preamp_db"])
             log.info("preamp gain set to %.1f dB", self.cfg.preamp_db)
+        if "chunk_ms" in settings:
+            self.cfg.chunk_ms = int(settings["chunk_ms"])
+            log.info("audio chunk size set to %d ms", self.cfg.chunk_ms)
 
     async def _restart_incoming(self) -> None:
         """Reconnect the incoming stream so stream-level settings take effect."""
@@ -667,6 +670,7 @@ class Controller:
             "preprocess_enable": self.cfg.preprocess_enable,
             "highpass_hz": self.cfg.highpass_hz,
             "preamp_db": self.cfg.preamp_db,
+            "chunk_ms": self.cfg.chunk_ms,
         }
 
     # -- lifecycle ---------------------------------------------------------
