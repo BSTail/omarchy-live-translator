@@ -34,6 +34,10 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   the newest WAV is often silent (post-audio). Look at the WAV whose timestamp
   brackets the event, not the newest one. Retention (`debug_keep=20`) prunes
   older captures.
+- Debug captures now bounded: `debug_roll_sec` (600) rolls the WAV after N
+  seconds and `debug_silence_sec` (60) trims leading/trailing silence on close
+  (all-silent files are deleted). This stops idle monitor sessions ballooning
+  into hundreds of MB of near-silence.
 
 ## Hotkeys (Hyprland)
 - F10 / Shift+F10: outgoing PTT en→es / es→en.
