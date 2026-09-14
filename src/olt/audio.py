@@ -15,7 +15,6 @@ so we never append; every session gets its own file.
 from __future__ import annotations
 
 import asyncio
-import math
 import struct
 import time
 import wave
@@ -32,10 +31,13 @@ FORMAT = "s16le"
 CHANNELS = 1
 
 
-def _prune_debug_dir(debug_dir: Path, keep: int) -> None:
-    """Keep only the newest `keep` capture files in the debug directory."""
-    if keep <= 0:
-        return
+def prune_debug_captures(debug_dir: Path, keep: int) -> None:
+    """Keep only the newest `keep` capture files in the debug directory.
+
+    Also removes zero-byte captures left behind by a crashed/upgraded capture
+    (e.g. a `parec` that never delivered audio), which would otherwise linger
+    forever and look like valid recordings during analysis.
+    """
     try:
         files = sorted(
             (p for p in debug_dir.glob("*.wav") if p.is_file()),
@@ -49,6 +51,12 @@ def _prune_debug_dir(debug_dir: Path, keep: int) -> None:
             stale.unlink()
         except OSError:
             pass
+    try:
+        for empty in debug_dir.glob("*.wav"):
+            if empty.is_file() and empty.stat().st_size == 0:
+                empty.unlink()
+    except OSError:
+        pass
 
 
 class Capture:
@@ -69,17 +77,24 @@ class Capture:
         self._wav_frames: int = 0
 
     async def start(self) -> None:
+        # `parec` (libpulse 17 on PipeWire) resolves @DEFAULT_MONITOR@ and
+        # @DEFAULT_SOURCE@ correctly and reads the monitor mix at full level.
+        # `--latency-msec 10` shrinks the Pulse buffer (fragsize 320 bytes =
+        # 20 ms) so capture latency stays low; the default fragsize (64000
+        # bytes = 2 s) adds ~2 s of buffered latency to every stream.
         cmd = [
             "parec",
             "--device",
             self.device,
+            "--raw",
             "--rate",
             str(RATE),
             "--format",
             FORMAT,
             "--channels",
             str(CHANNELS),
-            "--raw",
+            "--latency-msec",
+            "10",
         ]
         self.proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -147,4 +162,4 @@ def monitor_capture(cfg: Config) -> Capture:
 
 def prune_debug_dir(cfg: Config) -> None:
     if cfg.debug_capture:
-        _prune_debug_dir(Path(cfg.debug_dir), cfg.debug_keep)
+        prune_debug_captures(Path(cfg.debug_dir), cfg.debug_keep)
