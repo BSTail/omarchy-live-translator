@@ -35,11 +35,17 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 - Multimedia mode toggle (longer EOU 1600ms for continuous media speech).
 - Unified overlay: single themed panel, newest-at-top, grows to screen height,
   scrollable; history toggle (all vs newest-only).
-- Settings panel: direction, auto-speak, incoming enable/direction, multimedia,
-  history, glossary (word-boost), per-app activation, output toggle,
-  diagnostics, clear-logs.
+- Settings panel toggles: direction, auto-speak, incoming enable/direction,
+  multimedia, history, glossary (word-boost), per-app activation, output,
+  diagnostics, clear-logs, Record audio captures, Audio cleanup, Keep screen
+  awake.
 - Latency telemetry + JSONL event log (`events.jsonl` in state dir);
   `olt-ctl diagnostics` shows avg/min/max per stage.
+- Panel toggles live under the DIAGNOSTICS section (bottom of panel). If the
+  user can't see new toggles, run `omarchy-shell shell rescanPlugins` to force
+  a full plugin reload (hot-reload sometimes misses additions).
+- Known harmless warning: `Panel.qml:146 Parameter "exitCode" is not declared`
+  (deprecation). User said to ignore it.
 
 ## Paths
 - Deployed source: `~/.local/share/omarchy-live-translator/src/olt/`
@@ -51,16 +57,23 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 - Git repo (source of truth): `BSTail/omarchy-live-translator`, local clone `/tmp/opencode/olt`
 
 ## Last completed tasks
-1. Debug audio capture: timestamped WAVs (`in-*/out-*.wav`) in state debug dir,
-   retention `debug_keep` (20), empty captures pruned, panel toggle "Record
-   audio captures" (default ON for now), `clear_logs` also deletes captures.
-2. Fixed incoming state/race bugs: `incoming_enabled` now updates config;
+1. Keep-screen-awake toggle (default ON): controller runs
+   `omarchy-toggle-idle stay-awake`/`allow-idle` to suppress the Omarchy
+   screensaver/lock while translating. Panel toggle "Keep screen awake".
+   Verified: idle service logs `stay-awake enabled/disabled` live.
+2. Audio pre-processing before ASR: new `preprocess.py` (DC-block high-pass
+   120 Hz + 6 dB gain, pure Python). Config `preprocess_enable`/`highpass_hz`/
+   `preamp_db`; panel toggle "Audio cleanup".
+3. `chunk_ms` config (default 160) makes the ASR WebSocket frame size tunable
+   for latency experiments.
+4. Debug audio capture: timestamped WAVs (`in-*/out-*.wav`), retention
+   `debug_keep` (20), empty captures pruned, panel toggle "Record audio
+   captures" (default ON), `clear_logs` also deletes captures.
+5. Fixed incoming state/race bugs: `incoming_enabled` updates config;
    `_restart_incoming` is async and awaits the old task; unexpected pump
-   errors are logged.
-3. Glossary phrases added: Matt/Mat/Mac/Max/amat/mc/mcway, Mattacito,
-   Maxacito, Danna (cousin), Roblox/Robus/Roblo/robla.
-4. Before that: glossary+multimedia defaults, config loading fix, stream
-   restart on toggles, ASR frame hardening, reverse EN→ES verified.
+   errors logged.
+6. Glossary phrases: Matt/Mat/Mac/Max/amat/mc/mcway, Mattacito, Maxacito,
+   Danna (cousin), Roblox/Robus/Roblo/robla.
 
 ## Next up (user's priority)
 - Analyze the recorded daughter WAVs in `~/.local/state/omarchy-live-translator/debug/`
@@ -72,9 +85,9 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   "boosting disabled". To make the glossary work we need to reconvert the
   model with the tokenizer embedded (convert_model.py) or find a GGUF that
   carries it. Investigate next.
-- Then: package as an Omarchy plugin (installer, config, docs).
-- Then: real video/voice call test; endpointing/VAD tuning; Phase 2 incoming
-  speech-to-speech (opt-in). Model/voice management deferred.
+- Then: package as an Omarchy plugin (installer, config, docs) — LAST step.
+- Then: endpointing/VAD tuning; Phase 2 incoming speech-to-speech (opt-in).
+  Model/voice management deferred.
 
 ## User preferences
 - Native English speaker; main direction en→es outgoing, es→en incoming.
