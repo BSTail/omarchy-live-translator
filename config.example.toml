@@ -16,6 +16,9 @@ highpass_hz = 120.0
 preamp_db = 6.0
 chunk_ms = 160
 
+# Keep the screen awake (suppress screensaver/lock) while translating.
+keep_awake = true
+
 [paths]
 nemo_speech = "~/.local/bin/nemo-speech"
 piper = "~/.local/bin/piper"

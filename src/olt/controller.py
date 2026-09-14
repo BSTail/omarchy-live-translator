@@ -605,6 +605,10 @@ class Controller:
         if "chunk_ms" in settings:
             self.cfg.chunk_ms = int(settings["chunk_ms"])
             log.info("audio chunk size set to %d ms", self.cfg.chunk_ms)
+        if "keep_awake" in settings:
+            self.cfg.keep_awake = bool(settings["keep_awake"])
+            self._apply_keep_awake()
+            log.info("keep-awake set to %s", self.cfg.keep_awake)
 
     async def _restart_incoming(self) -> None:
         """Reconnect the incoming stream so stream-level settings take effect."""
@@ -616,6 +620,17 @@ class Controller:
                 pass
         if self.cfg.incoming.enabled:
             self.incoming_task = asyncio.create_task(self.incoming())
+
+    def _apply_keep_awake(self) -> None:
+        """Toggle the Omarchy stay-awake flag that suppresses idle/lock."""
+        try:
+            subprocess.run(
+                ["omarchy-toggle-idle",
+                 "stay-awake" if self.cfg.keep_awake else "allow-idle"],
+                capture_output=True, timeout=5,
+            )
+        except Exception as exc:
+            log.error("keep-awake toggle failed: %s", exc)
 
     def clear_logs(self) -> None:
         """Delete all log files and translation history for this plugin.
@@ -671,6 +686,7 @@ class Controller:
             "highpass_hz": self.cfg.highpass_hz,
             "preamp_db": self.cfg.preamp_db,
             "chunk_ms": self.cfg.chunk_ms,
+            "keep_awake": self.cfg.keep_awake,
         }
 
     # -- lifecycle ---------------------------------------------------------
@@ -680,6 +696,7 @@ class Controller:
         await self.asr.start()
         await self.start_overlay()
         self.start_control_server()
+        self._apply_keep_awake()
         if self.cfg.incoming.enabled:
             self.incoming_task = asyncio.create_task(self.incoming())
         log.info("controller running; press Ctrl-C to stop")

@@ -37,6 +37,7 @@ Panel {
   property bool debugCapture: true
   property bool preprocess: true
   property real preampDb: 6.0
+  property bool keepAwake: true
 
   property bool pending: false
 
@@ -136,6 +137,7 @@ Panel {
           root.debugCapture = d.debug_capture !== false
           root.preprocess = d.preprocess_enable !== false
           root.preampDb = Number(d.preamp_db) || 6.0
+          root.keepAwake = d.keep_awake !== false
         } catch (e) {
           root.serviceRunning = false
         }
@@ -526,6 +528,20 @@ Panel {
             onClicked: {
               root.preprocess = !root.preprocess
               root.applySettings({ "preprocess_enable": root.preprocess })
+            }
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Keep screen awake"
+            description: "Suppress the screensaver and lock while the translator is running"
+            checked: root.keepAwake
+            foreground: root.bar.foreground
+            accent: Color.accent
+            fontFamily: root.bar.fontFamily
+            onClicked: {
+              root.keepAwake = !root.keepAwake
+              root.applySettings({ "keep_awake": root.keepAwake })
             }
           }
 

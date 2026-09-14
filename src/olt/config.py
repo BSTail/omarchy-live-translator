@@ -114,6 +114,9 @@ class Config:
     # Audio chunk size sent to the ASR WebSocket per frame (ms). Larger chunks
     # reduce overhead; smaller chunks reduce latency.
     chunk_ms: int = 160
+    # Keep the screen awake (suppress Omarchy screensaver/lock) while the
+    # translator is running, so live calls aren't interrupted.
+    keep_awake: bool = True
 
 
 def _expand(path: str) -> str:
@@ -201,5 +204,6 @@ def load(path: str | None = None) -> Config:
     cfg.highpass_hz = float(data.get("highpass_hz", cfg.highpass_hz))
     cfg.preamp_db = float(data.get("preamp_db", cfg.preamp_db))
     cfg.chunk_ms = int(data.get("chunk_ms", cfg.chunk_ms))
+    cfg.keep_awake = bool(data.get("keep_awake", cfg.keep_awake))
 
     return cfg
