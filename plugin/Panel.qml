@@ -293,7 +293,7 @@ Panel {
               radius: 10
               samples: 17
               spread: 0.4
-              color: root.serviceRunning ? root.themeGreen : root.themeAccent
+              color: root.serviceRunning ? root.themeRed : root.themeGreen
               visible: true
             }
           }
