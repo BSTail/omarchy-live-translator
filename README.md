@@ -160,6 +160,14 @@ The controller process and overlay state machine are specified in
 - [x] Fixed incoming pump crash on TTS pause (ConnectionResetError).
 - [x] Fixed Gtk-CRITICAL overlay assertions (update entries in place, never
       reparent inside the ScrolledWindow viewport).
+- [x] Debug audio capture: timestamped WAVs (`in-*/out-*.wav`) in the state
+      debug dir, retention via `debug_keep`, empty captures pruned, panel
+      toggle "Record audio captures" (default ON), `clear_logs` also deletes
+      captures.
+- [x] Fixed incoming state/race bugs: `incoming_enabled` now updates config;
+      `_restart_incoming` awaits the old task; unexpected pump errors logged.
+- [x] Glossary phrases for child speech: Matt variants, Mattacito/Maxacito,
+      Danna, Roblox variants.
 
 ### In progress
 
@@ -167,7 +175,14 @@ The controller process and overlay state machine are specified in
 
 ### To do (prioritised)
 
+- [ ] Analyze recorded daughter WAVs (level/bandwidth/silence) to guide child
+      speech improvements.
+- [ ] Translation-speed benchmark using recorded WAVs (sentence length and
+      settings sweep) — user idea, future task.
 - [ ] Package as an Omarchy plugin (installer, config, docs).
+- [ ] Word boosting is a no-op until the GGUF carries the embedded SentencePiece
+      proto (`asr.tokenizer.spm_model`); reconvert model or find a GGUF that
+      includes it.
 - [ ] Endpointing / VAD tuning for continuous speech (long unbroken utterances
       delay `.completed` finals; consider shorter EOU threshold or VAD).
 - [ ] Latency tuning for live calls (chunk size, streaming config).
