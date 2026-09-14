@@ -88,6 +88,7 @@ Mesa Vulkan driver.
 | Vulkan (Arc) | Voxtype Whisper `small` | ~18× realtime |
 | Vulkan (Arc) | NeMo Nemotron 3.5 ASR 0.6B | ~3.2 s for 11 s audio (streaming), accurate Spanish |
 | Vulkan (Arc) | NeMo MagpieTTS 357M | ~0.79x realtime, no Vulkan benefit — rejected for live TTS |
+| CPU | Piper (`es_ES-davefx-medium`, `en_US-lessac-medium`) | ~0.06x realtime (≈15× faster than realtime) |
 
 ### Known issue (NeMo Vulkan)
 
@@ -117,6 +118,7 @@ The controller process and overlay state machine are specified in
   - [x] Spanish transcription (FLEURS sample) — accurate, with punctuation.
   - [x] Vulkan backend active on Intel Arc.
   - [x] Streaming mode (160 ms chunks) works.
+- [x] Install Piper (GitHub release tarball, no AUR) + Spanish/English voices; validate realtime TTS.
 
 ### In progress
 
@@ -125,7 +127,6 @@ The controller process and overlay state machine are specified in
 
 ### To do
 
-- [ ] Integrate Piper TTS (Spanish + English voices) for outgoing speech.
 - [ ] Capture incoming audio via PipeWire monitor source (call audio → ASR).
 - [ ] Wire outgoing push-to-talk (mic → ASR → NMT → overlay → TTS → virtual mic).
 - [ ] Build the floating bilingual overlay with Draft / Ready / Spoken states.
