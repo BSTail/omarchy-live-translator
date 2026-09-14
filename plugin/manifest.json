@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "bstail.live-translator",
+  "name": "Live Translator",
+  "version": "0.1.0",
+  "author": "BSTail",
+  "description": "Offline en<->es live call translation: start/stop the service and tweak settings from the bar.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Live Translator",
+    "description": "Live speech translation (en<->es) with start/stop and settings",
+    "category": "Info",
+    "allowMultiple": false
+  }
+}
