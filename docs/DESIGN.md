@@ -242,6 +242,41 @@ The controller is the single owner of hotkey handling (mapped in
 
 ---
 
+## 5b. Bar widget (settings + lifecycle)
+
+A Quickshell bar widget gives per-call control without a terminal. It runs
+inside `omarchy-shell`, so it stays visible even while the plugin is stopped.
+
+| Element | Behaviour |
+|---|---|
+| **Icon pill** | status: green = running, gray = stopped |
+| **Panel (click)** | Start/Stop, toggles, clear overlay |
+
+### Start / Stop
+
+- **Start** = `systemctl --user start omarchy-live-translator.service libretranslate-live.service`
+- **Stop** = `systemctl --user stop omarchy-live-translator.service libretranslate-live.service`
+
+Stopping halts **only this plugin's** services:
+
+| Service | Stopped by widget | Notes |
+|---|---|---|
+| `omarchy-live-translator.service` | yes | controller + `nemo-speech serve` |
+| `libretranslate-live.service` (port 5001) | yes | this plugin's translation service |
+| `libretranslate.service` (port 5000) | **no** | belongs to the dictation plugin |
+| `voxtype.service` | **no** | belongs to the dictation plugin |
+
+### Toggles (via the controller's control server)
+
+- incoming translation on/off
+- outgoing direction (en→es / es→en)
+- auto-speak on/off
+- clear overlay
+
+The widget never touches the dictation plugin's services.
+
+---
+
 ## 6. Data flow contract (each hop)
 
 | Hop | In | Out | Transport |
@@ -327,6 +362,7 @@ position = "top-right"
 | Phase | Scope |
 |---|---|
 | **1** | Outgoing PTT + on-screen incoming translation (2a + 2b) |
+| **1b** | Bar widget: start/stop (own services only) + settings toggles |
 | **2** | Incoming speech-to-speech into headphones (2c), opt-in |
 | **3** | Polish: overlay editing UX, auto-speak tuning, packaging as an Omarchy plugin |
 
