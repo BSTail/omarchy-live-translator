@@ -1,4 +1,5 @@
 import QtQuick
+import Qt5Compat.GraphicalEffects
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -39,6 +40,27 @@ Panel {
   property bool preprocess: true
   property real preampDb: 6.0
   property bool keepAwake: true
+
+  // Theme tokens read from the active theme's colors.toml (the shell only
+  // exposes foreground/background/accent/urgent via Color; green/red are read
+  // directly so "Running" can be green and "Stopped" red).
+  readonly property color themeAccent: root.themeColor("accent", Color.accent)
+  readonly property color themeGreen: root.themeColor("green", "#29D398")
+  readonly property color themeRed: root.themeColor("red", Color.urgent)
+
+  function themeColor(key, fallback) {
+    var path = Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
+    var raw = root.readFile(path)
+    var m = String(raw || "").match(new RegExp("^\\s*" + key + "\\s*=\\s*[\"']?(#[0-9A-Fa-f]{6})", "m"))
+    return m ? m[1] : fallback
+  }
+
+  function readFile(path) {
+    var req = new XMLHttpRequest()
+    req.open("GET", "file://" + path, false)
+    try { req.send() } catch (e) { return "" }
+    return req.responseText
+  }
 
   property bool pending: false
 
@@ -237,17 +259,18 @@ Panel {
 
               Text {
                 text: "OmaTranslate"
-                color: root.bar.foreground
+                color: root.themeAccent
                 font.family: root.bar.fontFamily
                 font.pixelSize: Style.font.title
                 font.bold: true
               }
 
               Text {
-                text: root.serviceRunning ? "Running — offline en↔es" : "Stopped"
-                color: root.serviceRunning ? Qt.darker(root.bar.foreground, 1.3) : Color.urgent
+                text: root.serviceRunning ? "Running" : "Stopped"
+                color: root.serviceRunning ? root.themeGreen : root.themeRed
                 font.family: root.bar.fontFamily
                 font.pixelSize: Style.font.caption
+                font.bold: true
               }
             }
 
@@ -262,6 +285,16 @@ Panel {
               accent: Color.accent
               fontFamily: root.bar.fontFamily
               onClicked: root.toggleService()
+            }
+
+            Glow {
+              anchors.fill: headerButton
+              source: headerButton
+              radius: 10
+              samples: 17
+              spread: 0.4
+              color: root.serviceRunning ? root.themeGreen : root.themeAccent
+              visible: true
             }
           }
 
