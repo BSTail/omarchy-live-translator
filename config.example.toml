@@ -4,7 +4,7 @@
 [paths]
 nemo_speech = "~/.local/bin/nemo-speech"
 piper = "~/.local/bin/piper"
-libretranslate_url = "http://127.0.0.1:5000"
+libretranslate_url = "http://127.0.0.1:5001"
 
 [asr]
 model = "nemotron-3.5"

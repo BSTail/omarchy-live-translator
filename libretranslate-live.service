@@ -1,0 +1,12 @@
+[Unit]
+Description=LibreTranslate local translation service (live translator, en<->es)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/omarchy/.local/bin/libretranslate --load-only en,es --port 5001
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

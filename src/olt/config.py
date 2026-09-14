@@ -59,7 +59,7 @@ class OverlayConfig:
 class PathsConfig:
     nemo_speech: str = str(Path.home() / ".local" / "bin" / "nemo-speech")
     piper: str = str(Path.home() / ".local" / "bin" / "piper")
-    libretranslate_url: str = "http://127.0.0.1:5000"
+    libretranslate_url: str = "http://127.0.0.1:5001"
 
 
 @dataclass

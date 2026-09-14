@@ -1,6 +1,6 @@
 [Unit]
 Description=Omarchy Live Translator (offline en<->es speech translation)
-After=libretranslate.service sound.target
+After=libretranslate-live.service sound.target
 
 [Service]
 Type=simple
