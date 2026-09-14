@@ -110,13 +110,16 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   in `_incoming_once`, when `.completed` arrives the controller awaits NMT while
   the pump keeps pushing fresh audio into a stream whose results are never read,
   then tears down capture and reopens it → audio spoken during translation is
-  dropped + capture gap. Fix: keep capture alive across finalization, monotonic
-  sample offsets, queue finals to background workers, bounded audio ranges per
-  utterance. Do this before any model work.
-- **Re-score WER properly**: replace `difflib`-based WER with jiwer (minimum edit
-  distance), report S/D/I + alignments, document normalization. Keep verbatim
-  refs authoritative; Spanish speaker arbitrates disputed "extra content"
-  (hallucination was over-claimed). Prior difflib WER numbers are NOT valid WER.
+  dropped + capture gap. FIXED (commit 6f783b8): capture + ASR stream stay open
+  across consecutive finals; finals are translated in background workers with a
+  generation counter (`_incoming_gen`) so stale results can't resurrect cleared
+  cards. Deployed + service restarted + verified.
+- **Re-score WER properly**: DONE with jiwer 4.0.0 (`tools/score_wer.py`).
+  Corrected WER: parakeet-tdt 76.3%/47.0%, nemotron-3.5 93.2%/60.6% (clip 1/2).
+  S/D/I: parakeet 18/0/27 + 12/0/19; nemotron 21/1/33 + 21/1/18. Insertions
+  dominate (both models add content vs the verbatim reference). Prior difflib
+  numbers were NOT valid WER. Reference text remains authoritative; disputed
+  extra content still needs a Spanish speaker to arbitrate.
 - **Head-to-head architecture comparison** (NOT a confirmed two-tier plan yet):
   (a) buffered/chunked Parakeet-only vs (b) Nemotron draft → Parakeet refine.
   Measure draft latency / final latency / text stability on short + continuous

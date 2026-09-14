@@ -189,9 +189,8 @@ The controller process and overlay state machine are specified in
       produces extra fluent-looking content on long continuous speech (cause
       unverified — see review notes below); pre-processing, `rnnt_right_context`,
       language prompt, punctuation, and batching do not improve it. Accuracy on
-      real speech ≈ 6–7/10. NOTE: the earlier WER numbers were computed with
-      `difflib.SequenceMatcher`, which does not guarantee minimum edit distance,
-      so they are not defensible as WER; re-scoring with jiwer is pending.
+      real speech ≈ 6–7/10. Corrected jiwer WER figures live in the To-do list
+      (the original difflib numbers were not valid WER).
 
 ### In progress
 
@@ -212,6 +211,16 @@ The controller process and overlay state machine are specified in
       document normalization (numbers, accent stripping). Keep the verbatim
       reference text authoritative; have a Spanish speaker arbitrate the
       disputed "extra content" passages rather than assuming hallucination.
+- [x] **Re-scored with jiwer** (`tools/score_wer.py`, jiwer 4.0.0, default
+      lowercase + punctuation-strip normalization, digits kept as-is). Corrected
+      WER (the earlier difflib numbers were NOT valid WER):
+      parakeet-tdt 76.3% / 47.0% (clip 1/2), nemotron-3.5 93.2% / 60.6%.
+      Breakdowns (S/D/I): parakeet 18/0/27 and 12/0/19; nemotron 21/1/33 and
+      21/1/18. Insertions dominate — both models add content relative to the
+      verbatim reference. Parakeet is still clearly better, but the absolute
+      numbers are worse than the difflib figures implied; the reference text
+      remains authoritative and the disputed extra content needs a Spanish
+      speaker to arbitrate.
 - [ ] **Head-to-head architecture comparison** (replaces the "confirmed two-tier
       plan"): (a) buffered/chunked Parakeet-only vs (b) Nemotron draft →
       Parakeet refine. Measure draft latency, final latency, and text stability
@@ -244,13 +253,13 @@ The controller process and overlay state machine are specified in
       provisional drafts are not yet implemented. Re-run NMT when Parakeet
       revises the source transcript.
 - [x] **Evaluate a higher-accuracy ASR model** — `parakeet-tdt` (0.6B v3) pulled
-      and timed against the two calibration clips (Vulkan, q8_0). Preliminary
-      (non-authoritative) WER via difflib suggested Parakeet is more accurate
-      and ~4× faster on a 15 s file transcription (~1.1 s vs ~4.3 s, both
-      including subprocess startup). CAVEATS from review: the "offline-only"
-      conclusion is too broad (NVIDIA documents buffered streaming for Parakeet
-      via NeMo), and the two-model plan is not yet justified — needs the
-      head-to-head above. Canary 1B Flash / v2 remain candidates for later.
+      and timed against the two calibration clips (Vulkan, q8_0). Corrected
+      jiwer WER: parakeet 76.3%/47.0% vs nemotron 93.2%/60.6% (see above); 15 s
+      file transcription ~1.1 s vs ~4.3 s (both including subprocess startup).
+      CAVEATS from review: the "offline-only" conclusion is too broad (NVIDIA
+      documents buffered streaming for Parakeet via NeMo), and the two-model
+      plan is not yet justified — needs the head-to-head above. Canary 1B Flash /
+      v2 remain candidates for later.
 - [ ] Analyze recorded daughter WAVs (level/bandwidth/silence) to guide child
       speech improvements.
 - [ ] Translation-speed benchmark using recorded WAVs (sentence length and
