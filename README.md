@@ -151,6 +151,15 @@ The controller process and overlay state machine are specified in
 - [x] Multimedia mode toggle (longer EOU window for continuous media speech).
 - [x] Unified overlay: all cards in one scrollable panel, newest at top, capped
       to screen height.
+- [x] Translation history toggle (all cards scrollable vs newest-only).
+- [x] Latency telemetry: per-stage timings (ASR/NMT/TTS/playback) logged with
+      every translation event.
+- [x] Structured JSONL event log (`events.jsonl` in the state dir).
+- [x] `olt-ctl diagnostics` latency summary (avg/min/max per stage).
+- [x] Clear logs & history button (deletes olt.log*, events.jsonl, clears overlay).
+- [x] Fixed incoming pump crash on TTS pause (ConnectionResetError).
+- [x] Fixed Gtk-CRITICAL overlay assertions (update entries in place, never
+      reparent inside the ScrolledWindow viewport).
 
 ### In progress
 
