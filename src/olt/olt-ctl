@@ -33,6 +33,47 @@ if [ "$ACTION" = "diagnostics" ]; then
     echo "--- controller status ---"
     curl -fsS --max-time 3 http://127.0.0.1:8670/status 2>&1 || echo "(controller not responding)"
     echo
+    echo "--- latency summary (events.jsonl) ---"
+    EVENTS="$HOME/.local/state/omarchy-live-translator/events.jsonl"
+    if [ -f "$EVENTS" ]; then
+        python3 - "$EVENTS" <<'EOF'
+import json, sys
+from collections import defaultdict
+path = sys.argv[1]
+acc = defaultdict(list)
+kinds = defaultdict(int)
+try:
+    with open(path, encoding="utf-8") as fh:
+        lines = fh.readlines()
+except OSError:
+    lines = []
+for line in lines:
+    try:
+        ev = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    kinds[ev.get("kind", "?")] += 1
+    for key in ("asr_ms", "nmt_ms", "tts_ms", "play_ms"):
+        v = ev.get(key)
+        if isinstance(v, (int, float)):
+            acc[key].append(v)
+print("events by kind:", dict(kinds))
+for key in ("asr_ms", "nmt_ms", "tts_ms", "play_ms"):
+    vals = acc[key]
+    if not vals:
+        continue
+    n = len(vals)
+    avg = sum(vals) / n
+    lo = min(vals)
+    hi = max(vals)
+    print(f"{key}: n={n} avg={avg:.1f} min={lo:.1f} max={hi:.1f} (ms)")
+if not lines:
+    print("(no events recorded yet)")
+EOF
+    else
+        echo "(no events file yet)"
+    fi
+    echo
     echo "--- recent log (olt) ---"
     journalctl --user -u omarchy-live-translator.service --no-pager -n 40 2>&1
     echo
