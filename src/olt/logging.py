@@ -4,14 +4,22 @@ Every component logs through this module. Logs go to stderr (visible in the
 systemd journal) and, when a log directory is configured, to a rotating file.
 Uncaught exceptions are reported with a full traceback and a clear, greppable
 tag so bug reports can be filed easily.
+
+Structured event log: translation events are also written as JSON Lines to
+`events.jsonl` in the log directory. Each line is one self-contained event
+(direction, source/target text, per-stage timestamps, mode flags) so bug
+reports and latency analysis don't require parsing the human log.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import logging.handlers
 import os
 import sys
+import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -21,9 +29,12 @@ APP_NAME = "omarchy-live-translator"
 LOGGER_NAME = "olt"
 
 _logger: logging.Logger | None = None
+_events_path: Path | None = None
+_events_lock = threading.Lock()
 
 
 def _build_logger(log_dir: Path | None, level: str) -> logging.Logger:
+    global _events_path
     logger = logging.getLogger(LOGGER_NAME)
     logger.setLevel(level.upper())
     logger.propagate = False
@@ -54,6 +65,7 @@ def _build_logger(log_dir: Path | None, level: str) -> logging.Logger:
             )
             file_handler.setFormatter(fmt)
             logger.addHandler(file_handler)
+            _events_path = log_dir / "events.jsonl"
         except OSError as exc:  # logging must never crash the app
             logger.warning("could not open log file in %s: %s", log_dir, exc)
 
@@ -75,6 +87,25 @@ def get() -> logging.Logger:
     if _logger is None:
         _logger = _build_logger(None, "INFO")
     return _logger
+
+
+def log_event(event: dict) -> None:
+    """Append one structured event to events.jsonl.
+
+    Never raises: event logging must not take down the controller.
+    """
+    global _events_path
+    if _events_path is None:
+        return
+    try:
+        event = dict(event)
+        event.setdefault("ts", time.time())
+        line = json.dumps(event, ensure_ascii=False) + "\n"
+        with _events_lock:
+            with open(_events_path, "a", encoding="utf-8") as fh:
+                fh.write(line)
+    except OSError:
+        pass
 
 
 def log_uncaught(exc_type, exc_value, exc_tb) -> None:

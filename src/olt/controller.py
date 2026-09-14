@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import subprocess
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -114,6 +115,7 @@ class Controller:
             log.info("outgoing blocked: focused window is not an allowed call app")
             return
         card_id = self._next_card("out")
+        t0 = time.monotonic()
         self.overlay_send(
             {"cmd": "card", "id": card_id, "direction": "out",
              "source": "", "target": "", "state": "draft"}
@@ -127,6 +129,7 @@ class Controller:
         partial = ""
         pump_task: asyncio.Task | None = None
         finalized = False
+        t_asr_final: float | None = None
         try:
             async def pump():
                 while True:
@@ -138,7 +141,7 @@ class Controller:
             pump_task = asyncio.create_task(pump())
 
             async def reader():
-                nonlocal partial, finalized
+                nonlocal partial, finalized, t_asr_final
                 async for ev in stream.events():
                     t = ev.get("type")
                     if t == "conversation.item.input_audio_transcription.delta":
@@ -150,6 +153,7 @@ class Controller:
                     elif t == "conversation.item.input_audio_transcription.completed":
                         final = ev.get("transcript", partial).strip()
                         finalized = True
+                        t_asr_final = time.monotonic()
                         await self._finalize_outgoing(card_id, final, source_lang, target)
                         return
 
@@ -167,6 +171,14 @@ class Controller:
                 log.warning("outgoing finalize timed out")
                 if partial and not finalized:
                     await self._finalize_outgoing(card_id, partial, source_lang, target)
+            logging.log_event({
+                "kind": "outgoing",
+                "direction": f"{source_lang[:2]}→{target}",
+                "card": card_id,
+                "capture_start_s": round(t0, 3),
+                "asr_final_s": round(t_asr_final, 3) if t_asr_final else None,
+                "asr_ms": round((t_asr_final - t0) * 1000, 1) if t_asr_final else None,
+            })
         finally:
             if pump_task and not pump_task.done():
                 pump_task.cancel()
@@ -185,6 +197,7 @@ class Controller:
         if not text:
             self.overlay_send({"cmd": "clear", "id": card_id})
             return
+        t_nmt0 = time.monotonic()
         try:
             translated = await self.nmt.translate(text, source_lang[:2], target)
         except Exception as exc:
@@ -195,8 +208,17 @@ class Controller:
                  "state": "ready"}
             )
             return
+        nmt_ms = (time.monotonic() - t_nmt0) * 1000
         log.info("outgoing translated (%s→%s): %r → %r",
                  source_lang[:2], target, text, translated)
+        logging.log_event({
+            "kind": "translation",
+            "direction": f"{source_lang[:2]}→{target}",
+            "card": card_id,
+            "source": text,
+            "target": translated,
+            "nmt_ms": round(nmt_ms, 1),
+        })
         self.overlay_send(
             {"cmd": "card", "id": card_id, "direction": "out",
              "source": text, "target": translated, "state": "ready"}
@@ -219,6 +241,7 @@ class Controller:
         self.overlay_send({"cmd": "card", "id": card["id"], "direction": "out",
                            "source": card["source"], "target": card["target"],
                            "state": "spoken"})
+        t_tts0 = time.monotonic()
         try:
             wav = await self.tts.synthesize(card["target"], card["target_lang"])
         except Exception as exc:
@@ -227,6 +250,15 @@ class Controller:
                                "source": card["source"], "target": card["target"],
                                "state": "ready"})
             return
+        tts_ms = (time.monotonic() - t_tts0) * 1000
+        logging.log_event({
+            "kind": "tts",
+            "card": card["id"],
+            "target_lang": card["target_lang"],
+            "text": card["target"],
+            "tts_ms": round(tts_ms, 1),
+            "destination": self.cfg.outgoing.output_destination,
+        })
         # When playing through speakers, the monitor (incoming capture) hears
         # our own TTS and would re-translate it. Pause incoming for the
         # duration of playback to break the echo loop.
@@ -237,7 +269,15 @@ class Controller:
                 self.incoming_task = None
                 was_paused = True
                 log.info("incoming paused during TTS playback")
+        t_play0 = time.monotonic()
         await self._play(wav)
+        play_ms = (time.monotonic() - t_play0) * 1000
+        logging.log_event({
+            "kind": "playback",
+            "card": card["id"],
+            "destination": self.cfg.outgoing.output_destination,
+            "play_ms": round(play_ms, 1),
+        })
         if was_paused:
             self.incoming_task = asyncio.create_task(self.incoming())
             log.info("incoming resumed after TTS playback")
@@ -321,6 +361,8 @@ class Controller:
         card_id = self._next_card("in")
         self._incoming_card_id = card_id
         partial = ""
+        t_first_delta: float | None = None
+        t_asr_final: float | None = None
         try:
             async def pump():
                 try:
@@ -338,6 +380,8 @@ class Controller:
             async for ev in stream.events():
                 t = ev.get("type")
                 if t == "conversation.item.input_audio_transcription.delta":
+                    if t_first_delta is None and ev.get("delta", "").strip():
+                        t_first_delta = time.monotonic()
                     partial = (partial + ev.get("delta", "")).strip()
                     self.overlay_send(
                         {"cmd": "card", "id": card_id, "direction": "in",
@@ -345,7 +389,9 @@ class Controller:
                     )
                 elif t == "conversation.item.input_audio_transcription.completed":
                     final = ev.get("transcript", partial).strip()
+                    t_asr_final = time.monotonic()
                     if final:
+                        t_nmt0 = time.monotonic()
                         try:
                             translated = await self.nmt.translate(
                                 final,
@@ -354,9 +400,24 @@ class Controller:
                             )
                         except Exception as exc:
                             translated = f"[translation failed: {exc}]"
+                        nmt_ms = (time.monotonic() - t_nmt0) * 1000
                         log.info("incoming translated (%s→%s): %r → %r",
                                  self.cfg.incoming.source_language[:2],
                                  self.cfg.incoming.target, final, translated)
+                        asr_ms = (
+                            round((t_asr_final - t_first_delta) * 1000, 1)
+                            if t_first_delta is not None else None
+                        )
+                        logging.log_event({
+                            "kind": "incoming",
+                            "direction": f"{self.cfg.incoming.source_language[:2]}→{self.cfg.incoming.target}",
+                            "card": card_id,
+                            "source": final,
+                            "target": translated,
+                            "asr_ms": asr_ms,
+                            "nmt_ms": round(nmt_ms, 1),
+                            "multimedia": self.cfg.incoming.multimedia,
+                        })
                         self.overlay_send(
                             {"cmd": "card", "id": card_id, "direction": "in",
                              "source": final, "target": translated,
