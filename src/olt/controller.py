@@ -596,6 +596,12 @@ class Controller:
         if "debug_capture" in settings:
             self.cfg.debug_capture = bool(settings["debug_capture"])
             log.info("debug capture set to %s", self.cfg.debug_capture)
+        if "preprocess_enable" in settings:
+            self.cfg.preprocess_enable = bool(settings["preprocess_enable"])
+            log.info("audio pre-processing set to %s", self.cfg.preprocess_enable)
+        if "preamp_db" in settings:
+            self.cfg.preamp_db = float(settings["preamp_db"])
+            log.info("preamp gain set to %.1f dB", self.cfg.preamp_db)
 
     async def _restart_incoming(self) -> None:
         """Reconnect the incoming stream so stream-level settings take effect."""
@@ -658,6 +664,9 @@ class Controller:
             "debug_capture": self.cfg.debug_capture,
             "debug_dir": self.cfg.debug_dir,
             "debug_keep": self.cfg.debug_keep,
+            "preprocess_enable": self.cfg.preprocess_enable,
+            "highpass_hz": self.cfg.highpass_hz,
+            "preamp_db": self.cfg.preamp_db,
         }
 
     # -- lifecycle ---------------------------------------------------------

@@ -106,6 +106,11 @@ class Config:
     debug_capture: bool = True
     debug_dir: str = str(Path.home() / ".local" / "state" / "omarchy-live-translator" / "debug")
     debug_keep: int = 20
+    # Audio pre-processing before ASR: a DC-blocking high-pass and a fixed
+    # gain. Helps quiet/muffled capture (phone calls, child speech).
+    preprocess_enable: bool = True
+    highpass_hz: float = 120.0
+    preamp_db: float = 6.0
 
 
 def _expand(path: str) -> str:
@@ -189,5 +194,8 @@ def load(path: str | None = None) -> Config:
     cfg.debug_capture = bool(data.get("debug_capture", cfg.debug_capture))
     cfg.debug_dir = _expand(data.get("debug_dir", cfg.debug_dir))
     cfg.debug_keep = int(data.get("debug_keep", cfg.debug_keep))
+    cfg.preprocess_enable = bool(data.get("preprocess_enable", cfg.preprocess_enable))
+    cfg.highpass_hz = float(data.get("highpass_hz", cfg.highpass_hz))
+    cfg.preamp_db = float(data.get("preamp_db", cfg.preamp_db))
 
     return cfg

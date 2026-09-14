@@ -10,6 +10,11 @@ debug_capture = true
 debug_dir = "~/.local/state/omarchy-live-translator/debug"
 debug_keep = 20
 
+# Audio pre-processing before ASR (helps quiet/muffled capture).
+preprocess_enable = true
+highpass_hz = 120.0
+preamp_db = 6.0
+
 [paths]
 nemo_speech = "~/.local/bin/nemo-speech"
 piper = "~/.local/bin/piper"

@@ -15,12 +15,15 @@ so we never append; every session gets its own file.
 from __future__ import annotations
 
 import asyncio
+import math
+import struct
 import time
 import wave
 from pathlib import Path
 
 from . import logging
 from .config import Config
+from .preprocess import Preprocessor
 
 log = logging.get()
 
@@ -49,10 +52,17 @@ def _prune_debug_dir(debug_dir: Path, keep: int) -> None:
 
 
 class Capture:
-    def __init__(self, device: str, debug_dir: Path | None = None, tag: str = "capture"):
+    def __init__(
+        self,
+        device: str,
+        debug_dir: Path | None = None,
+        tag: str = "capture",
+        preprocess: Preprocessor | None = None,
+    ):
         self.device = device
         self.debug_dir = debug_dir
         self.tag = tag
+        self.preprocess = preprocess
         self.proc: asyncio.subprocess.Process | None = None
         self._wav: wave.Wave_write | None = None
         self._wav_path: Path | None = None
@@ -115,6 +125,8 @@ class Capture:
             chunk = await self.proc.stdout.readexactly(nbytes)
         except asyncio.IncompleteReadError as exc:
             chunk = exc.partial
+        if self.preprocess is not None:
+            chunk = self.preprocess.process(chunk)
         if self._wav is not None and chunk:
             self._wav.writeframes(chunk)
             self._wav_frames += len(chunk) // 2
@@ -123,12 +135,14 @@ class Capture:
 
 def mic_capture(cfg: Config) -> Capture:
     debug_dir = Path(cfg.debug_dir) if cfg.debug_capture else None
-    return Capture("@DEFAULT_SOURCE@", debug_dir, tag="out")
+    pp = Preprocessor(cfg.preprocess_enable, cfg.highpass_hz, cfg.preamp_db)
+    return Capture("@DEFAULT_SOURCE@", debug_dir, tag="out", preprocess=pp)
 
 
 def monitor_capture(cfg: Config) -> Capture:
     debug_dir = Path(cfg.debug_dir) if cfg.debug_capture else None
-    return Capture(cfg.incoming.source_device, debug_dir, tag="in")
+    pp = Preprocessor(cfg.preprocess_enable, cfg.highpass_hz, cfg.preamp_db)
+    return Capture(cfg.incoming.source_device, debug_dir, tag="in", preprocess=pp)
 
 
 def prune_debug_dir(cfg: Config) -> None:

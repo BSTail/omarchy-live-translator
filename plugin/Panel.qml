@@ -35,6 +35,8 @@ Panel {
   property string activationClass: ""
   property string activationTitle: ""
   property bool debugCapture: true
+  property bool preprocess: true
+  property real preampDb: 6.0
 
   property bool pending: false
 
@@ -132,6 +134,8 @@ Panel {
             root.activationTitle = d.activation.app_title || ""
           }
           root.debugCapture = d.debug_capture !== false
+          root.preprocess = d.preprocess_enable !== false
+          root.preampDb = Number(d.preamp_db) || 6.0
         } catch (e) {
           root.serviceRunning = false
         }
@@ -508,6 +512,20 @@ Panel {
             onClicked: {
               root.debugCapture = !root.debugCapture
               root.applySettings({ "debug_capture": root.debugCapture })
+            }
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Audio cleanup"
+            description: "High-pass filter + gain boost before recognition (helps quiet or muffled audio)"
+            checked: root.preprocess
+            foreground: root.bar.foreground
+            accent: Color.accent
+            fontFamily: root.bar.fontFamily
+            onClicked: {
+              root.preprocess = !root.preprocess
+              root.applySettings({ "preprocess_enable": root.preprocess })
             }
           }
 
