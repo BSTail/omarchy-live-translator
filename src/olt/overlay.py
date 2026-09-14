@@ -10,10 +10,9 @@ protocol over stdin. Each line is a command:
     {"cmd": "clear_all"}
     {"cmd": "hint", "text": "reconnecting…"}
 
-Theming follows the user's GTK theme entirely through CSS classes and GTK
-named colors (@theme_bg_color, @theme_fg_color, @accent_color, @success_color).
-No Pango markup and no hardcoded colors are used, so the overlay adapts to
-whatever theme the user has set.
+Theming follows the active Omarchy theme: the overlay reads the current
+theme's colors.toml (bg/fg/accent/green) and builds a CSS provider from those
+colors. If no Omarchy theme is found it falls back to GTK named colors.
 """
 
 from __future__ import annotations
@@ -27,7 +26,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 from gi.repository import GLib, Gtk, Gtk4LayerShell  # noqa: E402
 
-# CSS class per card state, resolved against GTK named colors.
+from .theme import load_theme
+
 STATE_CLASS = {
     "draft": "olt-draft",
     "ready": "olt-ready",
@@ -35,38 +35,41 @@ STATE_CLASS = {
     "incoming": "olt-incoming",
 }
 
-CSS = """
+
+def build_css(theme: dict) -> str:
+    if theme:
+        bg = theme.get("bg", "@theme_bg_color")
+        fg = theme.get("fg", "@theme_fg_color")
+        light_fg = theme.get("light_fg", theme.get("fg", "@theme_fg_color"))
+        accent = theme.get("accent", "@accent_color")
+        green = theme.get("green", "@success_color")
+        return f"""
+box.card {{
+    background: alpha({bg}, 0.85);
+    border: 1px solid alpha({fg}, 0.12);
+    border-radius: 8px;
+    padding: 8px;
+}}
+label.olt-src {{ color: alpha({light_fg}, 0.65); font-size: 0.9em; }}
+label.olt-target {{ color: {fg}; }}
+label.olt-draft {{ color: alpha({fg}, 0.55); }}
+label.olt-ready {{ color: {fg}; }}
+label.olt-spoken {{ color: {green}; }}
+label.olt-incoming {{ color: {accent}; }}
+"""
+    return """
 box.card {
     background: alpha(@theme_bg_color, 0.85);
     border: 1px solid alpha(@theme_fg_color, 0.12);
     border-radius: 8px;
     padding: 8px;
 }
-
-label.olt-src {
-    color: alpha(@theme_fg_color, 0.65);
-    font-size: 0.9em;
-}
-
-label.olt-target {
-    color: @theme_fg_color;
-}
-
-label.olt-draft {
-    color: alpha(@theme_fg_color, 0.55);
-}
-
-label.olt-ready {
-    color: @theme_fg_color;
-}
-
-label.olt-spoken {
-    color: @success_color;
-}
-
-label.olt-incoming {
-    color: @accent_color;
-}
+label.olt-src { color: alpha(@theme_fg_color, 0.65); font-size: 0.9em; }
+label.olt-target { color: @theme_fg_color; }
+label.olt-draft { color: alpha(@theme_fg_color, 0.55); }
+label.olt-ready { color: @theme_fg_color; }
+label.olt-spoken { color: @success_color; }
+label.olt-incoming { color: @accent_color; }
 """
 
 
@@ -100,8 +103,9 @@ class OverlayApp:
         Gtk4LayerShell.set_margin(self.window, Gtk4LayerShell.Edge.BOTTOM, 12)
         Gtk4LayerShell.set_margin(self.window, Gtk4LayerShell.Edge.LEFT, 12)
 
+        theme = load_theme()
         self.css = Gtk.CssProvider()
-        self.css.load_from_string(CSS)
+        self.css.load_from_string(build_css(theme))
         Gtk.StyleContext.add_provider_for_display(
             Gtk.Widget.get_display(self.window), self.css, 800
         )
@@ -138,11 +142,9 @@ class OverlayApp:
         frame.add_css_class("card")
 
         if direction == "out":
-            # Source (what the user said) on top, translation below.
             frame.append(self._label(source, "olt-src"))
             frame.append(self._label(target, state_class))
         else:
-            # Incoming: translation first, original beneath.
             frame.append(self._label(target, state_class))
             frame.append(self._label(source, "olt-src"))
 
@@ -150,7 +152,6 @@ class OverlayApp:
         self.cards[card_id] = frame
 
     def state(self, card_id: str, state: str):
-        # The controller re-sends full card data on state changes.
         pass
 
     def clear(self, card_id: str):

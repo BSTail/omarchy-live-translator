@@ -144,12 +144,15 @@ class Controller:
         try:
             translated = await self.nmt.translate(text, source_lang[:2], target)
         except Exception as exc:
+            log.error("outgoing translation failed: %s", exc)
             self.overlay_send(
                 {"cmd": "card", "id": card_id, "direction": "out",
                  "source": text, "target": f"[translation failed: {exc}]",
                  "state": "ready"}
             )
             return
+        log.info("outgoing translated (%s→%s): %r → %r",
+                 source_lang[:2], target, text, translated)
         self.overlay_send(
             {"cmd": "card", "id": card_id, "direction": "out",
              "source": text, "target": translated, "state": "ready"}
