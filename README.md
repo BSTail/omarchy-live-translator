@@ -180,6 +180,16 @@ The controller process and overlay state machine are specified in
 - [x] Consistent incoming `asr_ms` telemetry (capture-start → ASR-final).
 - [x] Bounded debug captures: WAV roll (`debug_roll_sec`) + silence trim
       (`debug_silence_sec`); all-silent captures deleted.
+- [x] Fixed incoming realtime WebSocket: correct endpoint (`/v1/realtime`) and
+      handshake `readuntil` (was over-reading the first `session.created` frame
+      and desyncing the parser — "malformed ASR frame" warnings, no finals).
+- [x] ASR accuracy calibration against two verbatim Spanish reference clips
+      (`~/Downloads/es-calibrate-{1,2}.{m4a,txt}`). Findings: audio levels are
+      healthy (peak −0.5/−3.2 dBFS, RMS ~−25 dBFS); the streaming RNNT model
+      hallucinates extra fluent content on long continuous speech (confirmed by
+      speech-duration math: 26 s of speech vs ~80 output words ≈ 3.1 wps);
+      pre-processing, `rnnt_right_context`, language prompt, punctuation, and
+      batching do not improve it. Accuracy on real speech ≈ 6–7/10.
 
 ### In progress
 
@@ -194,6 +204,17 @@ The controller process and overlay state machine are specified in
       name) before packaging.
 - [ ] **Localized panel**: default panel language follows the OS locale (en /
       es-LatAm for now), user-overridable in settings.
+- [ ] **Two-tier incoming translation** (user idea, under discussion): a fast
+      streaming model renders short (2–3 s) provisional chunks in a lighter
+      "draft" style, while a more accurate offline model (e.g. Canary/Parakeet
+      TDT) re-translates longer utterance-level chunks and replaces the draft
+      text in place (no scrolling duplicates).
+- [ ] **Evaluate a higher-accuracy ASR model** to replace/augment Nemotron 3.5:
+      candidates researched — Parakeet TDT 0.6B v3 (es WER 3.45% FLEURS,
+      official GGUF, offline/buffered), Canary 1B Flash (883M, es WER 2.69%
+      MLS), Canary 1B v2 (978M, 25 langs, direct speech translation). None are
+      streaming; all need a buffered-chunking path. Next: pull `parakeet-tdt`
+      and benchmark against the calibration clips.
 - [ ] Analyze recorded daughter WAVs (level/bandwidth/silence) to guide child
       speech improvements.
 - [ ] Translation-speed benchmark using recorded WAVs (sentence length and

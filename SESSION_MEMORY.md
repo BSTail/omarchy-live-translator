@@ -106,6 +106,19 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
     Danna (cousin), Roblox/Robus/Roblo/robla.
 
 ## Next up (user's priority)
+- **Two-tier incoming translation** (user idea, under discussion): fast streaming
+  model renders short (2–3 s) provisional chunks in a lighter "draft" style;
+  a more accurate offline model (Canary/Parakeet TDT) re-translates longer
+  utterance-level chunks and replaces the draft text in place (no scrolling).
+- **Evaluate a higher-accuracy ASR model**: Parakeet TDT 0.6B v3 (es WER 3.45%
+  FLEURS, official GGUF, offline/buffered), Canary 1B Flash (883M), Canary 1B
+  v2 (978M, 25 langs, direct speech translation). None streaming; need a
+  buffered-chunking path. Next: pull `parakeet-tdt` and benchmark against the
+  calibration clips.
+- Calibration clips: `~/Downloads/es-calibrate-{1,2}.{m4a,txt}` (verbatim
+  reference). Current model hallucinates extra content on long continuous
+  speech; accuracy ≈ 6–7/10. Pre-processing / right_context / language prompt
+  / punctuation / batching don't help.
 - Analyze the recorded daughter WAVs in `~/.local/state/omarchy-live-translator/debug/`
   (level/bandwidth/silence) to explain why child speech is still hard. NOTE:
   match each WAV to the event timestamp; the newest WAV is often post-audio
