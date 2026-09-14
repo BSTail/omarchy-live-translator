@@ -70,6 +70,10 @@ popups.
 5. **gtk4-layer-shell must be linked before libwayland-client.** For a Python
    (PyGObject) app, preload it when spawning the overlay:
    `LD_PRELOAD=/usr/lib/libgtk4-layer-shell.so`.
+6. **The layer-shell window paints an opaque (black) background by default.**
+   Add `window.olt-root { background: transparent; }` (and add the class to the
+   window) so only the themed cards render — otherwise a black rectangle
+   appears behind the cards.
 
 ## Keeping it dynamic
 
