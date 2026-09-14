@@ -27,6 +27,7 @@ Panel {
   property bool incomingEnabled: true
   property string incomingDirection: "es-en"
   property bool multimedia: false
+  property bool twoTier: false
   property bool history: true
   property bool glossaryEnabled: false
   property var glossaryPhrases: []
@@ -123,6 +124,7 @@ Panel {
           root.incomingEnabled = !!d.incoming_enabled
           root.incomingDirection = d.incoming_direction || "es-en"
           root.multimedia = !!d.multimedia
+          root.twoTier = !!d.two_tier
           root.history = d.history !== false
           if (d.glossary) {
             root.glossaryEnabled = !!d.glossary.enabled
@@ -359,6 +361,20 @@ Panel {
             onClicked: {
               root.multimedia = !root.multimedia
               root.applySettings({ "multimedia": root.multimedia })
+            }
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Two-tier accuracy"
+            description: "Re-transcribe each finished phrase with a more accurate offline model (Parakeet) and replace the text in place"
+            checked: root.twoTier
+            foreground: root.bar.foreground
+            accent: Color.accent
+            fontFamily: root.bar.fontFamily
+            onClicked: {
+              root.twoTier = !root.twoTier
+              root.applySettings({ "two_tier": root.twoTier })
             }
           }
 
