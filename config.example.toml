@@ -9,6 +9,8 @@ log_level = "INFO"
 debug_capture = true
 debug_dir = "~/.local/state/omarchy-live-translator/debug"
 debug_keep = 20
+debug_roll_sec = 600
+debug_silence_sec = 60
 
 # Audio pre-processing before ASR (helps quiet/muffled capture).
 preprocess_enable = true

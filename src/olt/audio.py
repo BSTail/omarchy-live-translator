@@ -15,6 +15,7 @@ so we never append; every session gets its own file.
 from __future__ import annotations
 
 import asyncio
+import math
 import struct
 import time
 import wave
@@ -29,6 +30,9 @@ log = logging.get()
 RATE = 16000
 FORMAT = "s16le"
 CHANNELS = 1
+# Chunks below this RMS are considered silence (digital silence for a clean
+# pipe is 0; real-world monitor noise is far lower than normal speech).
+SILENCE_RMS = 100.0
 
 
 def prune_debug_captures(debug_dir: Path, keep: int) -> None:
@@ -66,15 +70,20 @@ class Capture:
         debug_dir: Path | None = None,
         tag: str = "capture",
         preprocess: Preprocessor | None = None,
+        roll_sec: int = 0,
+        silence_sec: int = 0,
     ):
         self.device = device
         self.debug_dir = debug_dir
         self.tag = tag
         self.preprocess = preprocess
+        self.roll_sec = max(0, roll_sec)
+        self.silence_sec = max(0, silence_sec)
         self.proc: asyncio.subprocess.Process | None = None
         self._wav: wave.Wave_write | None = None
         self._wav_path: Path | None = None
         self._wav_frames: int = 0
+        self._t_open: float = 0.0
 
     async def start(self) -> None:
         # `parec` (libpulse 17 on PipeWire) resolves @DEFAULT_MONITOR@ and
@@ -102,16 +111,96 @@ class Capture:
             stderr=asyncio.subprocess.DEVNULL,
         )
         if self.debug_dir is not None:
-            self.debug_dir.mkdir(parents=True, exist_ok=True)
-            stamp = time.strftime("%Y%m%d-%H%M%S")
-            self._wav_path = self.debug_dir / f"{self.tag}-{stamp}.wav"
-            self._wav = wave.open(str(self._wav_path), "wb")
-            self._wav.setnchannels(CHANNELS)
-            self._wav.setsampwidth(2)
-            self._wav.setframerate(RATE)
-            self._wav_frames = 0
-            log.info("capture dump enabled: %s", self._wav_path)
+            self._open_wav()
         log.info("capture started on %s", self.device)
+
+    def _open_wav(self) -> None:
+        self.debug_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        self._wav_path = self.debug_dir / f"{self.tag}-{stamp}.wav"
+        self._wav = wave.open(str(self._wav_path), "wb")
+        self._wav.setnchannels(CHANNELS)
+        self._wav.setsampwidth(2)
+        self._wav.setframerate(RATE)
+        self._wav_frames = 0
+        self._t_open = time.monotonic()
+        log.info("capture dump enabled: %s", self._wav_path)
+
+    def _close_wav(self, trim: bool) -> None:
+        wav = self._wav
+        self._wav = None
+        path = self._wav_path
+        self._wav_path = None
+        if wav is None:
+            return
+        # Flush the final partial frame before reading back for trimming.
+        try:
+            wav.close()
+        except OSError:
+            return
+        if path is None:
+            return
+        if trim and self.silence_sec > 0:
+            self._trim_silence(path)
+        # A capture with no retained audio is useless; drop it.
+        if self._wav_frames == 0:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+    def _trim_silence(self, path: Path) -> None:
+        """Drop any retained audio that is below the silence threshold.
+
+        Computes RMS per half-second window, finds the first and last window
+        with speech-level energy, keeps `silence_sec` of context on either side,
+        and rewrites the file in place. If everything is silent the file is
+        removed, since it carries nothing useful for waveform analysis.
+        """
+        try:
+            with wave.open(str(path), "rb") as r:
+                n = r.getnframes()
+                if n == 0:
+                    r.close()
+                    path.unlink()
+                    return
+                raw = r.readframes(n)
+        except (OSError, wave.Error):
+            return
+        samples = struct.unpack(f"<{n}h", raw)
+        win = RATE // 2  # 0.5 s windows
+        keep_silence = self.silence_sec * RATE
+        first = last = -1
+        for i in range(0, n - win + 1, win):
+            seg = samples[i:i + win]
+            rms = math.sqrt(sum(v * v for v in seg) / win)
+            if rms > SILENCE_RMS:
+                if first < 0:
+                    first = i
+                last = i
+        if first < 0:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            return
+        start = max(0, first - keep_silence)
+        end = min(n, last + win + keep_silence)
+        trimmed = raw[start * 2:end * 2]
+        if not trimmed:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            return
+        try:
+            with wave.open(str(path), "wb") as w:
+                w.setnchannels(CHANNELS)
+                w.setsampwidth(2)
+                w.setframerate(RATE)
+                w.writeframes(trimmed)
+        except OSError:
+            pass
 
     async def stop(self) -> None:
         if self.proc is not None and self.proc.returncode is None:
@@ -121,15 +210,7 @@ class Capture:
             except asyncio.TimeoutError:
                 self.proc.kill()
                 await self.proc.wait()
-        if self._wav is not None:
-            self._wav.close()
-            self._wav = None
-            # A capture with no audio is useless for analysis; drop it.
-            if self._wav_path is not None and self._wav_frames == 0:
-                try:
-                    self._wav_path.unlink()
-                except OSError:
-                    pass
+        self._close_wav(trim=True)
         log.info("capture stopped on %s", self.device)
 
     async def read_chunk(self, ms: int = 160) -> bytes:
@@ -145,19 +226,41 @@ class Capture:
         if self._wav is not None and chunk:
             self._wav.writeframes(chunk)
             self._wav_frames += len(chunk) // 2
+            # Roll the file once it exceeds the configured duration so idle
+            # monitor sessions never grow without bound.
+            if (
+                self.roll_sec > 0
+                and time.monotonic() - self._t_open >= self.roll_sec
+            ):
+                self._close_wav(trim=True)
+                self._open_wav()
         return chunk
 
 
 def mic_capture(cfg: Config) -> Capture:
     debug_dir = Path(cfg.debug_dir) if cfg.debug_capture else None
     pp = Preprocessor(cfg.preprocess_enable, cfg.highpass_hz, cfg.preamp_db)
-    return Capture("@DEFAULT_SOURCE@", debug_dir, tag="out", preprocess=pp)
+    return Capture(
+        "@DEFAULT_SOURCE@",
+        debug_dir,
+        tag="out",
+        preprocess=pp,
+        roll_sec=cfg.debug_roll_sec,
+        silence_sec=cfg.debug_silence_sec,
+    )
 
 
 def monitor_capture(cfg: Config) -> Capture:
     debug_dir = Path(cfg.debug_dir) if cfg.debug_capture else None
     pp = Preprocessor(cfg.preprocess_enable, cfg.highpass_hz, cfg.preamp_db)
-    return Capture(cfg.incoming.source_device, debug_dir, tag="in", preprocess=pp)
+    return Capture(
+        cfg.incoming.source_device,
+        debug_dir,
+        tag="in",
+        preprocess=pp,
+        roll_sec=cfg.debug_roll_sec,
+        silence_sec=cfg.debug_silence_sec,
+    )
 
 
 def prune_debug_dir(cfg: Config) -> None:

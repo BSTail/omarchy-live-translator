@@ -106,6 +106,16 @@ class Config:
     debug_capture: bool = True
     debug_dir: str = str(Path.home() / ".local" / "state" / "omarchy-live-translator" / "debug")
     debug_keep: int = 20
+    # Roll the debug WAV after this many seconds. A monitor capture stays open
+    # across idle stretches (the incoming loop only closes it when a
+    # translation finalizes), so without a cap a single file grows without
+    # bound with near-silence. At 16 kHz mono s16le, 600 s ≈ 19 MB.
+    debug_roll_sec: int = 600
+    # Maximum seconds of near-silent audio retained in a debug WAV. Silence is
+    # useless for waveform analysis and is what makes idle captures balloon.
+    # When a session ends (or rolls), leading+trailing low-level audio is
+    # trimmed away; if nothing is left the file is deleted.
+    debug_silence_sec: int = 60
     # Audio pre-processing before ASR: a DC-blocking high-pass and a fixed
     # gain. Helps quiet/muffled capture (phone calls, child speech).
     preprocess_enable: bool = True
@@ -200,6 +210,8 @@ def load(path: str | None = None) -> Config:
     cfg.debug_capture = bool(data.get("debug_capture", cfg.debug_capture))
     cfg.debug_dir = _expand(data.get("debug_dir", cfg.debug_dir))
     cfg.debug_keep = int(data.get("debug_keep", cfg.debug_keep))
+    cfg.debug_roll_sec = int(data.get("debug_roll_sec", cfg.debug_roll_sec))
+    cfg.debug_silence_sec = int(data.get("debug_silence_sec", cfg.debug_silence_sec))
     cfg.preprocess_enable = bool(data.get("preprocess_enable", cfg.preprocess_enable))
     cfg.highpass_hz = float(data.get("highpass_hz", cfg.highpass_hz))
     cfg.preamp_db = float(data.get("preamp_db", cfg.preamp_db))
