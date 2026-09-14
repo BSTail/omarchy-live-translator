@@ -51,13 +51,22 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 - Git repo (source of truth): `BSTail/omarchy-live-translator`, local clone `/tmp/opencode/olt`
 
 ## Last completed tasks
-1. Enabled glossary + multimedia defaults; fixed config loading (main() now calls load()).
-2. Incoming stream now restarts on multimedia/glossary/direction toggles (EOU/contexts are connect-time).
-3. Hardened ASR frame decode (malformed frames skipped, not fatal).
-4. Reverse direction EN→ES verified end-to-end (JFK clip → Spanish).
-5. Before that: clear-logs button, Gtk-CRITICAL fix, latency telemetry + JSONL log.
+1. Debug audio capture: timestamped WAVs (`in-*/out-*.wav`) in state debug dir,
+   retention `debug_keep` (20), empty captures pruned, panel toggle "Record
+   audio captures" (default ON for now), `clear_logs` also deletes captures.
+2. Fixed incoming state/race bugs: `incoming_enabled` now updates config;
+   `_restart_incoming` is async and awaits the old task; unexpected pump
+   errors are logged.
+3. Glossary phrases added: Matt/Mat/Mac/Max/amat/mc/mcway, Mattacito,
+   Maxacito, Danna (cousin), Roblox/Robus/Roblo/robla.
+4. Before that: glossary+multimedia defaults, config loading fix, stream
+   restart on toggles, ASR frame hardening, reverse EN→ES verified.
 
 ## Next up (user's priority)
+- Analyze the recorded daughter WAVs in `~/.local/state/omarchy-live-translator/debug/`
+  (level/bandwidth/silence) to explain why child speech is still hard.
+- User idea (future): use recorded WAVs as a translation-speed benchmark
+  across sentence lengths / settings.
 - Word boosting is currently a no-op: the shipped GGUF lacks the embedded
   SentencePiece proto (`asr.tokenizer.spm_model`), so nemo-speech logs
   "boosting disabled". To make the glossary work we need to reconvert the
