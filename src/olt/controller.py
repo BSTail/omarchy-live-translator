@@ -694,6 +694,7 @@ class Controller:
 
     async def run(self) -> None:
         self.loop = asyncio.get_running_loop()
+        audio.prune_debug_dir_startup(self.cfg)
         await self.asr.start()
         await self.start_overlay()
         self.start_control_server()

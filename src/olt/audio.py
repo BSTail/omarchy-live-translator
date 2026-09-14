@@ -63,6 +63,46 @@ def prune_debug_captures(debug_dir: Path, keep: int) -> None:
         pass
 
 
+def prune_debug_silent(debug_dir: Path) -> None:
+    """Delete debug WAVs whose audio is entirely below the silence threshold.
+
+    Retention (`debug_keep`) alone is not enough: every incoming final closes
+    its capture and opens a new one, so an hour of idle monitor time produces
+    dozens of near-silent files that crowd out the few captures that actually
+    contain speech. This runs at service startup so a long idle stretch can
+    never evict the recordings we care about.
+    """
+    try:
+        candidates = [p for p in debug_dir.glob("*.wav") if p.is_file()]
+    except OSError:
+        return
+    for path in candidates:
+        try:
+            with wave.open(str(path), "rb") as r:
+                n = r.getnframes()
+                if n == 0:
+                    r.close()
+                    path.unlink()
+                    continue
+                raw = r.readframes(n)
+        except (OSError, wave.Error):
+            continue
+        samples = struct.unpack(f"<{n}h", raw)
+        win = RATE // 2
+        loud = False
+        for i in range(0, n - win + 1, win):
+            seg = samples[i:i + win]
+            rms = math.sqrt(sum(v * v for v in seg) / win)
+            if rms > SILENCE_RMS:
+                loud = True
+                break
+        if not loud:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
 class Capture:
     def __init__(
         self,
@@ -265,4 +305,16 @@ def monitor_capture(cfg: Config) -> Capture:
 
 def prune_debug_dir(cfg: Config) -> None:
     if cfg.debug_capture:
+        prune_debug_captures(Path(cfg.debug_dir), cfg.debug_keep)
+
+
+def prune_debug_dir_startup(cfg: Config) -> None:
+    """Startup cleanup: drop silent captures before retention runs.
+
+    Retention counts files, not content, so a long idle stretch can evict the
+    few speech-bearing captures. Removing all-silent files first makes the
+    `debug_keep` budget go to captures that actually contain audio.
+    """
+    if cfg.debug_capture:
+        prune_debug_silent(Path(cfg.debug_dir))
         prune_debug_captures(Path(cfg.debug_dir), cfg.debug_keep)
