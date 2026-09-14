@@ -477,6 +477,11 @@ class Controller:
                      self.cfg.activation.enabled,
                      self.cfg.activation.app_class,
                      self.cfg.activation.app_title)
+        if "output_destination" in settings:
+            dest = settings["output_destination"]
+            if dest in ("virtual_mic", "speakers"):
+                self.cfg.outgoing.output_destination = dest
+                log.info("output destination set to %s", dest)
 
     def status(self) -> dict:
         incoming_running = self.incoming_task is not None and not self.incoming_task.done()
@@ -485,6 +490,7 @@ class Controller:
             "name": "olt-controller",
             "direction": "en-es" if self.cfg.outgoing.language.startswith("en") else "es-en",
             "auto_speak": self.cfg.outgoing.auto_speak_after_ms > 0,
+            "output_destination": self.cfg.outgoing.output_destination,
             "incoming_enabled": incoming_running,
             "incoming_direction": "es-en" if self.cfg.incoming.source_language.startswith("es") else "en-es",
             "glossary": {

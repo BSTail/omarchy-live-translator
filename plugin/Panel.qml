@@ -23,6 +23,7 @@ Panel {
   property bool serviceRunning: false
   property string direction: "en-es"
   property bool autoSpeak: false
+  property string outputDestination: "speakers"
   property bool incomingEnabled: true
   property string incomingDirection: "es-en"
   property bool glossaryEnabled: false
@@ -107,6 +108,7 @@ Panel {
           root.serviceRunning = true
           root.direction = d.direction || "en-es"
           root.autoSpeak = !!d.auto_speak
+          root.outputDestination = d.output_destination || "speakers"
           root.incomingEnabled = !!d.incoming_enabled
           root.incomingDirection = d.incoming_direction || "es-en"
           if (d.glossary) {
@@ -269,6 +271,20 @@ Panel {
             onClicked: {
               root.autoSpeak = !root.autoSpeak
               root.applySettings({ "auto_speak": root.autoSpeak })
+            }
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Speak through speakers"
+            description: "ON: play translation on your speakers (testing). OFF: route to the virtual microphone (calls)."
+            checked: root.outputDestination === "speakers"
+            foreground: root.bar.foreground
+            accent: Color.accent
+            fontFamily: root.bar.fontFamily
+            onClicked: {
+              root.outputDestination = (root.outputDestination === "speakers") ? "virtual_mic" : "speakers"
+              root.applySettings({ "output_destination": root.outputDestination })
             }
           }
 
