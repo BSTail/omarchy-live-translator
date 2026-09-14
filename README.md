@@ -89,6 +89,11 @@ LD_PRELOAD=/usr/lib/libstdc++.so.6 nemo-speech transcribe ... --device vulkan:0
 
 With the preload, `backend=Vulkan0` activates correctly.
 
+## Design
+
+The controller process and overlay state machine are specified in
+[docs/DESIGN.md](docs/DESIGN.md).
+
 ## Roadmap
 
 ### Completed
@@ -104,7 +109,8 @@ With the preload, `backend=Vulkan0` activates correctly.
 
 ### In progress
 
-- [ ] Design the controller process and overlay state machine.
+- [x] Design the controller process and overlay state machine.
+- [ ] Implement the controller process (Python, asyncio).
 
 ### To do
 
