@@ -4,7 +4,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "bstail.live-translator"
+  moduleName: "bstail.omatranslate"
 
   function injectPanel() {
     var target = panelLoader.item
@@ -63,7 +63,7 @@ BarWidget {
     bar: root.bar
     text: panelLoader.item ? panelLoader.item.label : ""
     slotSize: Style.bar.statusSlot
-    tooltipText: ""
+    tooltipText: "OmaTranslate"
 
     onPressed: function(b) {
       if (!root.bar) return

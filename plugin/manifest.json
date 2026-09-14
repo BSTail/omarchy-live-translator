@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "bstail.live-translator",
-  "name": "Live Translator",
+  "id": "bstail.omatranslate",
+  "name": "OmaTranslate",
   "version": "0.1.0",
   "author": "BSTail",
   "description": "Offline en<->es live call translation: start/stop the service and tweak settings from the bar.",
@@ -12,7 +12,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Live Translator",
+    "displayName": "OmaTranslate",
     "description": "Live speech translation (en<->es) with start/stop and settings",
     "category": "Info",
     "allowMultiple": false

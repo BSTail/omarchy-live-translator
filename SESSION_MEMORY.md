@@ -1,4 +1,4 @@
-# Session Memory — omarchy-live-translator
+# Session Memory — omarchy-live-translator (plugin name: OmaTranslate)
 
 Paste this into a fresh session to restore context.
 
@@ -74,7 +74,7 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 ## Paths
 - Deployed source: `~/.local/share/omarchy-live-translator/src/olt/`
 - Config: `~/.config/omarchy-live-translator/config.toml`
-- Widget: `~/.config/omarchy/plugins/bstail.live-translator/` (manifest.json, BarWidget.qml, Panel.qml)
+- Widget: `~/.config/omarchy/plugins/bstail.omatranslate/` (manifest.json, BarWidget.qml, Panel.qml)
 - systemd user units: `omarchy-live-translator.service`, `libretranslate-live.service`
 - CLI: `~/.local/bin/olt-ctl` (ptt_start/ptt_stop/speak/clear/clear_logs/pause_incoming/status/diagnostics)
 - Logs/events: `~/.local/state/omarchy-live-translator/` (olt.log, events.jsonl)

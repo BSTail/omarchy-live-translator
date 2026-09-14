@@ -6,8 +6,8 @@ import qs.Ui
 
 Panel {
   id: root
-  moduleName: "bstail.live-translator"
-  ipcTarget: "bstail.live-translator"
+  moduleName: "bstail.omatranslate"
+  ipcTarget: "bstail.omatranslate"
   manageIpc: false
 
   property var anchorItem: null
@@ -234,7 +234,7 @@ Panel {
               spacing: Style.spacing.xs
 
               Text {
-                text: "Live Translator"
+                text: "OmaTranslate"
                 color: root.bar.foreground
                 font.family: root.bar.fontFamily
                 font.pixelSize: Style.font.title

@@ -1,4 +1,4 @@
-# Omarchy Live Translator
+# OmaTranslate
 
 Offline, bidirectional English ↔ Spanish live speech translation for Omarchy Linux,
 designed for video and voice calls (a Timekettle-style workflow). Everything runs
@@ -133,7 +133,7 @@ The controller process and overlay state machine are specified in
 - [x] Theme the overlay from the active Omarchy theme (dynamic, no hardcoding;
       see `docs/THEMING.md`).
 - [x] Hide overlay until first card / F10.
-- [x] Bar icon widget (`bstail.live-translator`): green/muted status glyph,
+- [x] Bar icon widget (`bstail.omatranslate`): green/muted status glyph,
       left-click start/stop (own services only).
 - [x] Bar widget settings panel (left-click opens; Start/Stop moved inside):
   - [x] Outgoing direction toggle (EN→ES / ES→EN).
@@ -200,10 +200,16 @@ The controller process and overlay state machine are specified in
 - [ ] **Clipboard translation** (planned): a button + hotkey that translates the
       current clipboard text in both directions (auto-detect en/es), ready to
       paste. Direction follows the configured language pair.
-- [ ] **Plugin naming**: rename to `OmaTranslate` (or similar "Oma"-prefixed
-      name) before packaging.
+- [x] **Plugin naming**: renamed the plugin/widget to `OmaTranslate`
+      (`bstail.omatranslate`). Underlying services/subprocesses/state dirs keep
+      the `omarchy-live-translator` naming for now (rename is a later task).
 - [ ] **Localized panel**: default panel language follows the OS locale (en /
       es-LatAm for now), user-overridable in settings.
+- [ ] **Auto-detect input level (gating)** — user idea, under discussion: only
+      run incoming translation when the monitor signal exceeds a baseline
+      threshold (e.g. an audio file playing vs. silent speakers). Panel would
+      expose a threshold slider, defaulting low. Needs a design decision on
+      whether it gates ASR, mutes the overlay, or both.
 - [ ] **Two-tier incoming translation** (user idea, under discussion): a fast
       streaming model renders short (2–3 s) provisional chunks in a lighter
       "draft" style, while a more accurate offline model (e.g. Canary/Parakeet
