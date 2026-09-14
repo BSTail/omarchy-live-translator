@@ -148,22 +148,22 @@ class OverlayApp:
         self.border = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.border.add_css_class("card-border")
 
-        self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.card.add_css_class("card")
+        self.card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.card_box.add_css_class("card")
 
         self.hint_label = Gtk.Label(label="")
         self.hint_label.set_wrap(True)
         self.hint_label.set_halign(Gtk.Align.START)
-        self.card.append(self.hint_label)
+        self.card_box.append(self.hint_label)
 
         self.entries = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.scroll.set_propagate_natural_height(True)
         self.scroll.set_child(self.entries)
-        self.card.append(self.scroll)
+        self.card_box.append(self.scroll)
 
-        self.border.append(self.card)
+        self.border.append(self.card_box)
         self.window.set_child(self.border)
 
         self.cards: dict[str, Gtk.Box] = {}
