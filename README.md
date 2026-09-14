@@ -119,23 +119,35 @@ The controller process and overlay state machine are specified in
   - [x] Vulkan backend active on Intel Arc.
   - [x] Streaming mode (160 ms chunks) works.
 - [x] Install Piper (GitHub release tarball, no AUR) + Spanish/English voices; validate realtime TTS.
-
-### In progress
-
-- [x] Design the controller process and overlay state machine.
-- [x] Implement the controller process (Python, asyncio): config, logging,
+- [x] Design the controller process and overlay state machine (`docs/DESIGN.md`).
+- [x] Implement the controller (Python, asyncio): config, logging/error reporting,
       NeMo ASR client, LibreTranslate + Piper clients, audio capture, GTK4
       overlay, and control server.
 - [x] Wire Hyprland hotkeys (F10/Shift+F10, F11, F12/Shift+F12).
 - [x] Install as a systemd user service; outgoing PTT verified (mic → ASR →
-      overlay Draft; F11 → TTS).
+      overlay Draft → NMT; F11 → TTS).
+- [x] TTS output destination setting (`virtual_mic` vs `speakers`).
+- [x] Theme the overlay from the active Omarchy theme (dynamic, no hardcoding;
+      see `docs/THEMING.md`).
+- [x] Hide overlay until first card / F10.
+- [x] Bar icon widget (`bstail.live-translator`): green/muted status glyph,
+      left-click start/stop (own services only).
 
-### To do
+### In progress
 
+- [ ] Bar widget settings panel (click to open).
+
+### To do (prioritised)
+
+- [ ] Settings panel controls:
+  - [ ] Incoming direction toggle (source language: es / en).
+  - [ ] Auto-speak after release (timer).
+  - [ ] Glossary / word-boost (NeMo speech-context) for names and terms.
+  - [ ] Per-app activation (only run while the call app is focused).
+  - [ ] Model / voice management (upgrade models, pick languages).
+  - [ ] Diagnostics / log dump ("copy diagnostics" for bug reports).
 - [ ] Endpointing / VAD for automatic incoming segmentation.
 - [ ] Latency tuning for live calls (chunk size, streaming config).
-- [ ] Build bar widget: start/stop (own services) + settings toggles.
-- [ ] Theme the overlay to follow the OS theme.
 - [ ] Phase 2: incoming speech-to-speech into headphones (opt-in).
 - [ ] Package as an Omarchy plugin (installer, config, docs).
 - [ ] Test on a real video/voice call.
