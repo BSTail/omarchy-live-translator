@@ -167,6 +167,7 @@ class OverlayApp:
         self.window.set_child(self.border)
 
         self.cards: dict[str, Gtk.Box] = {}
+        self.history = True
 
         self.window.connect("map", lambda *_: self._relayout())
 
@@ -190,6 +191,21 @@ class OverlayApp:
             adj.set_value(0)
         except Exception:
             pass
+
+    def _apply_history(self) -> None:
+        """Show only the newest card, or all cards (scrollable history)."""
+        if self.history:
+            self.scroll.set_visible(True)
+            return
+        # Newest-only: hide everything except the most recent entry.
+        newest = None
+        for entry in self.cards.values():
+            if newest is None:
+                newest = entry
+        for entry in self.cards.values():
+            entry.set_visible(entry is newest)
+        self.scroll.set_visible(False)
+        self._relayout()
 
     def _update_visibility(self) -> None:
         visible = bool(self.cards) or bool(self.hint_label.get_text())
@@ -223,7 +239,10 @@ class OverlayApp:
         self.entries.prepend(entry)
         self.cards[card_id] = entry
         self._update_visibility()
-        self._relayout()
+        if not self.history:
+            self._apply_history()
+        else:
+            self._relayout()
 
     def state(self, card_id: str, state: str):
         pass
@@ -239,6 +258,13 @@ class OverlayApp:
             self.entries.remove(entry)
         self.cards.clear()
         self._update_visibility()
+
+    def set_history(self, enabled: bool):
+        self.history = bool(enabled)
+        if self.history:
+            for entry in self.cards.values():
+                entry.set_visible(True)
+        self._apply_history()
 
     def hint(self, text: str):
         self.hint_label.set_text(text)
@@ -268,6 +294,8 @@ class OverlayApp:
             self.clear(msg.get("id", ""))
         elif cmd == "clear_all":
             self.clear_all()
+        elif cmd == "history":
+            self.set_history(msg.get("enabled", True))
         elif cmd == "hint":
             self.hint(msg.get("text", ""))
 

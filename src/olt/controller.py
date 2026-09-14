@@ -323,11 +323,16 @@ class Controller:
         partial = ""
         try:
             async def pump():
-                while True:
-                    chunk = await cap.read_chunk(160)
-                    if not chunk:
-                        break
-                    await stream.send_audio(chunk)
+                try:
+                    while True:
+                        chunk = await cap.read_chunk(160)
+                        if not chunk:
+                            break
+                        await stream.send_audio(chunk)
+                except (ConnectionResetError, OSError, asyncio.CancelledError):
+                    # The socket can close when incoming is paused for TTS
+                    # playback; the pump is done, not an error.
+                    pass
 
             pump_task = asyncio.create_task(pump())
             async for ev in stream.events():
@@ -482,6 +487,10 @@ class Controller:
         if "multimedia" in settings:
             self.cfg.incoming.multimedia = bool(settings["multimedia"])
             log.info("multimedia mode set to %s", self.cfg.incoming.multimedia)
+        if "history" in settings:
+            self.cfg.overlay.history = bool(settings["history"])
+            self.overlay_send({"cmd": "history", "enabled": self.cfg.overlay.history})
+            log.info("overlay history set to %s", self.cfg.overlay.history)
         if "glossary" in settings:
             gl = settings["glossary"]
             if isinstance(gl, dict):
@@ -523,6 +532,7 @@ class Controller:
             "incoming_enabled": incoming_running,
             "incoming_direction": "es-en" if self.cfg.incoming.source_language.startswith("es") else "en-es",
             "multimedia": self.cfg.incoming.multimedia,
+            "history": self.cfg.overlay.history,
             "glossary": {
                 "enabled": self.cfg.glossary.enabled,
                 "phrases": self.cfg.glossary.phrases,

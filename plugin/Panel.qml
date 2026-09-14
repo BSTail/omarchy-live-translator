@@ -27,6 +27,7 @@ Panel {
   property bool incomingEnabled: true
   property string incomingDirection: "es-en"
   property bool multimedia: false
+  property bool history: true
   property bool glossaryEnabled: false
   property var glossaryPhrases: []
   property real glossaryBoost: 3.0
@@ -113,6 +114,7 @@ Panel {
           root.incomingEnabled = !!d.incoming_enabled
           root.incomingDirection = d.incoming_direction || "es-en"
           root.multimedia = !!d.multimedia
+          root.history = d.history !== false
           if (d.glossary) {
             root.glossaryEnabled = !!d.glossary.enabled
             root.glossaryPhrases = d.glossary.phrases || []
@@ -338,6 +340,20 @@ Panel {
             onClicked: {
               root.multimedia = !root.multimedia
               root.applySettings({ "multimedia": root.multimedia })
+            }
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Translation history"
+            description: "ON: keep all cards (scrollable). OFF: show only the newest card."
+            checked: root.history
+            foreground: root.bar.foreground
+            accent: Color.accent
+            fontFamily: root.bar.fontFamily
+            onClicked: {
+              root.history = !root.history
+              root.applySettings({ "history": root.history })
             }
           }
 

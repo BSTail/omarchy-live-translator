@@ -75,6 +75,9 @@ class ActivationConfig:
 @dataclass
 class OverlayConfig:
     position: str = "top-right"
+    # History mode: "newest" keeps only the latest card visible; "history"
+    # keeps every card and lets the panel scroll.
+    history: bool = True
 
 
 @dataclass
@@ -172,6 +175,7 @@ def load(path: str | None = None) -> Config:
 
     ovl = section("overlay")
     cfg.overlay.position = ovl.get("position", cfg.overlay.position)
+    cfg.overlay.history = ovl.get("history", cfg.overlay.history)
 
     cfg.control_port = data.get("control_port", cfg.control_port)
     cfg.log_dir = _expand(data.get("log_dir", cfg.log_dir))
