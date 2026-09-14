@@ -41,25 +41,25 @@ Panel {
   property real preampDb: 6.0
   property bool keepAwake: true
 
-  // Theme tokens read from the active theme's colors.toml (the shell only
-  // exposes foreground/background/accent/urgent via Color; green/red are read
-  // directly so "Running" can be green and "Stopped" red).
-  readonly property color themeAccent: root.themeColor("accent", Color.accent)
-  readonly property color themeGreen: root.themeColor("green", "#29D398")
-  readonly property color themeRed: root.themeColor("red", Color.urgent)
+  // Theme tokens. `Color.accent` and `Color.urgent` already track the active
+  // theme (the shell applies theme changes automatically); `Color.urgent` is
+  // the theme's red. Green isn't exposed by the shell palette, so it's read
+  // once from the current theme's colors.toml via FileView (the same mechanism
+  // the shell's own Color singleton uses).
+  readonly property color themeAccent: Color.accent
+  readonly property color themeRed: Color.urgent
+  property color themeGreen: "#29D398"
 
-  function themeColor(key, fallback) {
-    var path = Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
-    var raw = root.readFile(path)
-    var m = String(raw || "").match(new RegExp("^\\s*" + key + "\\s*=\\s*[\"']?(#[0-9A-Fa-f]{6})", "m"))
-    return m ? m[1] : fallback
-  }
-
-  function readFile(path) {
-    var req = new XMLHttpRequest()
-    req.open("GET", "file://" + path, false)
-    try { req.send() } catch (e) { return "" }
-    return req.responseText
+  FileView {
+    id: themeColors
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
+    watchChanges: false
+    printErrors: false
+    onLoaded: {
+      var raw = String(text() || "")
+      var m = raw.match(/^\s*green\s*=\s*["']?(#[0-9A-Fa-f]{6})/m)
+      if (m) root.themeGreen = m[1]
+    }
   }
 
   property bool pending: false
@@ -277,6 +277,7 @@ Panel {
             Button {
               id: headerButton
               anchors.right: parent.right
+              anchors.rightMargin: Style.space(10)
               anchors.verticalCenter: parent.verticalCenter
               text: root.serviceRunning ? "Stop" : "Start"
               iconText: "\uf011"
@@ -289,6 +290,7 @@ Panel {
 
             Glow {
               anchors.fill: headerButton
+              anchors.margins: -Style.space(8)
               source: headerButton
               radius: 10
               samples: 17
