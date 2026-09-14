@@ -205,11 +205,12 @@ The controller process and overlay state machine are specified in
       the `omarchy-live-translator` naming for now (rename is a later task).
 - [ ] **Localized panel**: default panel language follows the OS locale (en /
       es-LatAm for now), user-overridable in settings.
-- [ ] **Auto-detect input level (gating)** — user idea, under discussion: only
-      run incoming translation when the monitor signal exceeds a baseline
-      threshold (e.g. an audio file playing vs. silent speakers). Panel would
-      expose a threshold slider, defaulting low. Needs a design decision on
-      whether it gates ASR, mutes the overlay, or both.
+- [ ] **Auto-detect input level (gating)** — user idea, agreed in principle: gate
+      incoming translation on a minimum monitor signal level (rolling RMS below
+      a slider threshold for a few seconds → don't send audio to ASR). Panel
+      gets a "minimum signal level" slider, default low. Threshold should be
+      DISABLED while an active call is happening (user confirmed). Design open:
+      gate ASR vs. mute overlay vs. both.
 - [ ] **Two-tier incoming translation** (user idea, under discussion): a fast
       streaming model renders short (2–3 s) provisional chunks in a lighter
       "draft" style, while a more accurate offline model (e.g. Canary/Parakeet

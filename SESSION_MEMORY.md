@@ -110,6 +110,12 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   model renders short (2–3 s) provisional chunks in a lighter "draft" style;
   a more accurate offline model (Canary/Parakeet TDT) re-translates longer
   utterance-level chunks and replaces the draft text in place (no scrolling).
+- **Auto-detect input level (gating)** — user idea, agreed in principle: gate
+  incoming translation on a minimum monitor signal level (rolling RMS below a
+  slider threshold for a few seconds → don't send audio to ASR). Panel gets a
+  "minimum signal level" slider, default low. IMPORTANT: threshold should be
+  DISABLED while an active call is happening (user confirmed) so in-call
+  silence isn't dropped. Design still open: gate ASR vs. mute overlay vs. both.
 - **Evaluate a higher-accuracy ASR model**: Parakeet TDT 0.6B v3 (es WER 3.45%
   FLEURS, official GGUF, offline/buffered), Canary 1B Flash (883M), Canary 1B
   v2 (978M, 25 langs, direct speech translation). None streaming; need a
@@ -137,6 +143,15 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 - Then: package as an Omarchy plugin (installer, config, docs) — LAST step.
 - Then: endpointing/VAD tuning; Phase 2 incoming speech-to-speech (opt-in).
   Model/voice management deferred.
+
+## Naming / branding
+- Plugin renamed to **OmaTranslate** (`bstail.omatranslate`) — manifest,
+  BarWidget, Panel header, tooltip, README. Bar layout in
+  `~/.config/omarchy/shell.json` updated to `bstail.omatranslate`.
+- Old plugin dir moved to `~/.config/omarchy/plugins.old/` (out of active
+  plugins). Underlying services/subprocesses/state dirs STILL use
+  `omarchy-live-translator` naming (rename deferred — user said keep it simple).
+- User registered omatranslate.com — do NOT reference the dot-com anywhere yet.
 
 ## User preferences
 - Native English speaker; main direction en→es outgoing, es→en incoming.
