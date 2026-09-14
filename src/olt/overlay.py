@@ -52,6 +52,9 @@ def build_css(theme: dict) -> str:
         # gradient, the inner card paints the solid theme background, and the
         # outer box's padding reveals the gradient as a thin ring.
         return f"""
+window.olt-root {{
+    background: transparent;
+}}
 box.card-border {{
     background-image: {grad};
     border-radius: 10px;
@@ -70,6 +73,9 @@ label.olt-spoken {{ color: {green}; }}
 label.olt-incoming {{ color: {accent}; }}
 """
     return f"""
+window.olt-root {{
+    background: transparent;
+}}
 box.card-border {{ background: none; padding: 0; }}
 box.card {{
     background: alpha({bg}, 0.92);
@@ -122,6 +128,10 @@ class OverlayApp:
         Gtk.StyleContext.add_provider_for_display(
             Gtk.Widget.get_display(self.window), self.css, 800
         )
+
+        # The layer-shell window itself must be transparent; otherwise GTK
+        # paints a default (black) background behind the themed cards.
+        self.window.add_css_class("olt-root")
 
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.box.set_vexpand(False)
