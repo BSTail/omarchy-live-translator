@@ -15,32 +15,38 @@ Two-way spoken translation during live calls:
 
 - **Outgoing:** push-to-talk, speak English, hear/read Spanish, optionally review
   and correct the text before it is spoken.
-- **Incoming:** automatically transcribe and translate the remote speaker's audio,
-  shown in a floating bilingual overlay.
+- **Incoming (Phase 1):** automatically transcribe and translate the remote
+  speaker's audio, shown in a floating bilingual overlay.
+- **Incoming (Phase 2):** speak the translated English into the user's
+  headphones/speakers (opt-in, after on-screen translation works).
 
 Priorities, in order: **accuracy first, speed second, resource efficiency third.**
 
 ## Architecture
 
-Three small local processes, orchestrated by a thin controller. No second Voxtype
-daemon (Voxtype cannot run two daemons side by side; the existing F9 dictation
-plugin keeps its own daemon untouched).
+Two lightweight local speech stacks that coexist without overlap:
+
+- **Voxtype** (unchanged) — the multilingual dictation plugin (F9 / Shift+F9).
+- **NeMo** (this plugin) — live call translation (F10+).
+
+This plugin uses **two engines**: NeMo for ASR + TTS, and LibreTranslate for
+translation.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        omarchy-live-translator                   │
 │                                                                 │
-│  ┌────────────┐   ┌──────────────┐   ┌────────────┐             │
-│  │ NeMo-Speech │──▶│ LibreTranslate│──▶│  Piper TTS │             │
-│  │  (ASR)     │   │  (en↔es NMT) │   │  (es/en)   │             │
-│  └────────────┘   └──────────────┘   └────────────┘             │
-│        ▲                 │                  │                    │
-│        │ mic/loopback    │                  ▼                    │
-│        │                 │            audio output              │
-│        │                 ▼                                       │
-│        │         ┌──────────────┐                                │
-│        └─────────│  Controller  │──▶ floating bilingual overlay │
-│                  └──────────────┘   (Draft / Ready / Spoken)    │
+│  ┌──────────────────┐          ┌──────────────┐                 │
+│  │  NeMo-Speech.cpp │─────────▶│ LibreTranslate│                 │
+│  │  ASR + TTS       │          │  (en↔es NMT) │                 │
+│  │  (MagpieTTS)     │          └──────────────┘                 │
+│  └──────────────────┘                 │                          │
+│        ▲                               ▼                          │
+│        │ mic / monitor          ┌──────────────┐                 │
+│        │                        │  Controller  │──▶ overlay      │
+│        └────────────────────────┴──────────────┘   (Draft/Ready/│
+│                                virtual mic /       Spoken)       │
+│                                headphones (Phase 2)              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -48,7 +54,7 @@ plugin keeps its own daemon untouched).
 |---|---|---|---|
 | ASR (speech → text) | Recognize English and Spanish | NeMo-Speech.cpp, `nemotron-3.5-asr-streaming-0.6b` (q8_0), Vulkan backend | Validated |
 | NMT (text → text) | Translate en ↔ es | LibreTranslate (already running locally, `en_es`) | Existing |
-| TTS (text → speech) | Speak the translated text | Piper (Spanish + English voices) | To integrate |
+| TTS (text → speech) | Speak the translated text | NeMo MagpieTTS 357M (Piper as fallback) | To validate |
 | Overlay | Bilingual live text review | Hyprland layer-shell / GTK4 window | To build |
 | Hotkeys | Push-to-talk + mode toggle | Hyprland bindings (separate from F9) | To build |
 
@@ -59,13 +65,14 @@ plugin keeps its own daemon untouched).
   `auto` detection), with punctuation and capitalization built in.
 - Streaming (160 ms chunks) for live-call latency.
 - Vulkan backend uses the Intel Arc GPU.
+- Also provides TTS (MagpieTTS), so the plugin needs only two engines.
 
-### Why LibreTranslate + Piper
+### Why LibreTranslate (and not Riva Translate 4B)
 
-Both are lightweight, proven, and already local. This keeps the new plugin to
-three small tools rather than forcing one monolithic runtime. Riva Translate 4B
-and MagpieTTS are fallback candidates only if LibreTranslate or Piper fall short
-in practice.
+LibreTranslate is already running, tiny, and proven for en↔es. NeMo's Riva
+Translate 4B would have to load on Vulkan alongside ASR and is unproven on Arc,
+so it is not used. Piper is kept only as a TTS fallback if MagpieTTS Spanish
+quality falls short.
 
 ## Hardware validation
 
@@ -114,13 +121,14 @@ The controller process and overlay state machine are specified in
 
 ### To do
 
-- [ ] Capture incoming audio via PipeWire loopback (call audio → ASR).
-- [ ] Wire outgoing push-to-talk (mic → ASR → NMT → overlay → TTS).
+- [ ] Validate MagpieTTS Spanish quality (one sentence → WAV → listen); fall back to Piper if needed.
+- [ ] Capture incoming audio via PipeWire monitor source (call audio → ASR).
+- [ ] Wire outgoing push-to-talk (mic → ASR → NMT → overlay → TTS → virtual mic).
 - [ ] Build the floating bilingual overlay with Draft / Ready / Spoken states.
-- [ ] Integrate Piper TTS (Spanish + English voices) for outgoing speech.
 - [ ] Add Hyprland hotkeys (separate from the F9 dictation plugin).
 - [ ] Endpointing / VAD for automatic incoming segmentation.
 - [ ] Latency tuning for live calls (chunk size, streaming config).
+- [ ] Phase 2: incoming speech-to-speech into headphones (opt-in).
 - [ ] Package as an Omarchy plugin (installer, config, docs).
 - [ ] Test on a real video/voice call.
 

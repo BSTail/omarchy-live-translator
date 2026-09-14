@@ -1,8 +1,8 @@
 # Controller Process & Overlay State Machine
 
 This describes the runtime design for `omarchy-live-translator`. The goal is a
-clean, lightweight controller that glues three already-proven local tools
-together and drives a single floating overlay. Design principles:
+clean, lightweight controller that glues already-proven local tools together and
+drives a single floating overlay. Design principles:
 
 1. **Small, boring, testable.** One controller process in Python, no framework.
 2. **Stateless engines, stateful controller.** The sub-services (ASR, NMT, TTS)
@@ -11,32 +11,41 @@ together and drives a single floating overlay. Design principles:
    gates on an explicit "Speak" action so the user can correct text first.
 4. **Always-on incoming.** Incoming translation runs continuously and never
    intercepts the mic.
+5. **Keep Voxtype as-is.** Voxtype stays the multilingual dictation plugin
+   (F9 / Shift+F9). This plugin is a separate concern and uses NeMo.
 
 ---
 
-## 1. Processes
+## 1. Process boundaries
+
+Two coexisting, lightweight local speech stacks:
+
+| Stack | Plugin | Engine | Job |
+|---|---|---|---|
+| Voxtype (unchanged) | `omarchy-bilingual-voxtype` | Whisper `small` (Vulkan) | Dictation into any app (F9) |
+| NeMo (this plugin) | `omarchy-live-translator` | Nemotron 3.5 ASR 0.6B (Vulkan) | Live call translation (F10+) |
+
+They do not share a daemon and do not overlap. Voxtype is not modified.
 
 ```
 hyprland bindings
-      │  (F10 / Shift+F10 / F11)
+      │  (F10 / Shift+F10 / F11 / F12)
       ▼
 ┌────────────────────────────┐        ┌──────────────────────────────┐
-│        controller          │  HTTP  │   nemo-speech serve (ASR)     │
-│   (python, socket over     │◀─────▶│   nemotron-3.5 0.6B, Vulkan    │
-│    a small local HTTP +    │   WS   │   /v1/audio/transcriptions/…  │
-│    overlay ownership)      │        │   realtime WebSocket          │
-└───────────┬────────────────┘        └──────────────────────────────┘
-            │ HTTP
+│        controller          │  HTTP  │   nemo-speech serve           │
+│   (python, asyncio;        │◀─────▶│   ASR + TTS (MagpieTTS)        │
+│    local HTTP control +    │   WS   │   nemotron-3.5 0.6B, Vulkan   │
+│    overlay ownership)      │        │   /v1/audio/transcriptions/…  │
+└───────────┬────────────────┘        │   /v1/audio/speech           │
+            │ HTTP                    └──────────────────────────────┘
             ├──▶ LibreTranslate  (127.0.0.1:5000, en↔es)
-            ├──▶ Piper TTS       (pipe via stdin, write WAV to stdout)
             └──▶ overlay         (own process; controller pokes it)
 ```
 
 | Process | Starts | Communication | Notes |
 |---|---|---|---|
-| `nemo-speech serve` | controller | HTTP + WebSocket | ASR only; already validated on Vulkan |
+| `nemo-speech serve` | controller | HTTP + WebSocket | ASR **and** TTS (MagpieTTS); validated on Vulkan |
 | `libretranslate` | user (systemd) | HTTP POST `/translate` | existing, `en_es` model |
-| `piper` | controller, per utterance | stdin text → stdout WAV | short-lived, no daemon |
 | `overlay` | controller | local IPC (JSON over stdin / dbus-free) | GTK4 layer-shell window |
 | `controller` | user (systemd user unit) | — | owns everything |
 
@@ -47,12 +56,26 @@ hyprland bindings
 - The ASR already exposes a clean HTTP/WebSocket API, so the controller only
   does orchestration, not DSP.
 
+### TTS: NeMo MagpieTTS first, Piper as fallback
+
+NeMo already ships **MagpieTTS Multilingual 357M** (+ NanoCodec), covering both
+Spanish and English, and exposes it through `/v1/audio/speech`. That keeps the
+plugin to **two engines** (NeMo + LibreTranslate) instead of three.
+
+- **Primary:** MagpieTTS via NeMo.
+- **Fallback:** Piper, only if MagpieTTS Spanish quality is unacceptable on this
+  hardware. (Quick quality check: one Spanish sentence → WAV → listen.)
+
+We do **not** use NeMo's Riva Translate 4B for translation — it is a 4B model
+that would have to load on Vulkan alongside ASR, and it is unproven on Arc.
+LibreTranslate is already running, tiny, and proven, so it remains the NMT.
+
 ---
 
 ## 2. Controller responsibilities (single-threaded, `asyncio`)
 
-1. Spawn `nemo-speech serve` with the ASR model, Vulkan backend, and the
-   `LD_PRELOAD` workaround applied.
+1. Spawn `nemo-speech serve` with the ASR model, TTS model, Vulkan backend, and
+   the `LD_PRELOAD` workaround applied.
 2. Run a tiny local HTTP control server (e.g. `127.0.0.1:8670`) for hotkeys and
    the overlay. Commands arrive as JSON POSTs.
 3. Own the overlay process; send it state updates over a local socket.
@@ -69,45 +92,57 @@ Triggered by `F10` (English→Spanish) or `Shift+F10` (Spanish→English).
                                                         ▼
                                                [ NMT again if edited ]
                                                         ▼
-                                             [ Piper TTS ] → [ call audio ]
+                                             [ TTS (MagpieTTS) ] → [ virtual mic ]
                                                         ▼
-                                              [ overlay: Spoken ]
+                                               [ overlay: Spoken ]
 ```
 
 1. Controller starts a live mic capture (16 kHz mono PCM16) fed to the ASR
    WebSocket.
 2. ASR partials update the overlay as **Draft** in real time.
-3. On endpoint (push-to-talk released, or silence), the finalized English text
-   is sent to LibreTranslate.
-4. The Spanish translation enters the overlay as **Draft**, editable.
+3. On endpoint (push-to-talk released, or silence), the finalized source text is
+   sent to LibreTranslate.
+4. The translation enters the overlay as **Draft**, editable.
 5. User presses **Speak** (e.g. `F11`), or the controller auto-speaks after a
    short review window (configurable, default manual).
 6. Edited text is re-translated only if the user changed the source, then sent
-   to Piper; audio routed to the call output (not the mic).
-7. **Only at step 5 does anything reach the speaker's ears.** Nothing is spoken
+   to TTS. The resulting audio is routed to a **virtual microphone** (a PipeWire
+   null/loopback source) that the user selects as the mic in the call app.
+7. **Only at step 5 does anything reach the call.** Nothing is spoken
    automatically on outgoing unless "auto-speak" is enabled.
 
-### 2b. Incoming (always-on)
+### 2b. Incoming (always-on, on-screen)
 
 ```
-[ call audio (loopback/monitor source) ] → [ VAD/endpointing ] → [ ASR (WS) ]
-        → [ NMT en→es ] → [ overlay: Incoming, auto-shown ]
+[ call audio (monitor source) ] → [ VAD/endpointing ] → [ ASR (WS) ]
+        → [ NMT es→en ] → [ overlay: Incoming, auto-shown ]
 ```
 
-1. A PipeWire loopback/monitor captures the remote speaker's audio (never the
-   mic).
+1. A PipeWire **monitor source** captures the remote speaker's audio (the call
+   app's output, never the mic).
 2. VAD + endpointing split it into utterances; each fed to the ASR WebSocket.
 3. Translation flows into the overlay as **Incoming** lines, marked **Draft**
    until punctuation/end-of-utterance finalizes them to **Ready**.
-4. Incoming text is never spoken back (bidirectional but not full-duplex echo);
-   it is only displayed. Optional TTS-on-incoming can be enabled later.
+4. Incoming text is displayed only in this phase.
+
+### 2c. Incoming speech-to-speech (Phase 2, after on-screen works)
+
+Secondary goal, built only after 2a and 2b are solid:
+
+```
+[ call audio (monitor) ] → [ ASR ] → [ NMT es→en ] → [ TTS (English) ]
+        → [ headphones / speakers ]
+```
+
+- Remote Spanish is transcribed, translated to English, and **spoken into the
+  user's headphones/speakers**.
+- This is opt-in and must not echo back into the call (see routing below).
 
 ### Concurrency model
 
-Outgoing and incoming are two side-by-side `asyncio` tasks sharing one ASR
-WebSocket connection (or two connections — one per direction, to keep language
-prompts pinned `en-US` vs `es-ES` and avoid re-configuring mid-stream). Two
-connections is simpler and avoids prompt thrash:
+Outgoing and incoming are two side-by-side `asyncio` tasks using **two ASR
+WebSocket connections** — one per direction, to keep language prompts pinned
+(`en-US` vs `es-ES`) and avoid re-configuring mid-stream:
 
 | Direction | ASR language prompt |
 |---|---|
@@ -117,7 +152,27 @@ connections is simpler and avoids prompt thrash:
 
 ---
 
-## 3. Overlay
+## 3. Audio routing (PipeWire)
+
+Two routes keep the streams separate and echo-free:
+
+| Route | Source | Sink | Purpose |
+|---|---|---|---|
+| **Virtual mic (outgoing)** | TTS output | a null/loopback **source** | user selects it as the call app's microphone |
+| **Monitor (incoming)** | call app output monitor | controller capture | hear only the remote speaker |
+| **Headphones (Phase 2)** | TTS output | user's headphone/speaker sink | spoken English translation |
+
+### Testing with earbuds
+
+- With a headset, the mic picks up only the user's voice and TTS playback goes
+  to the ears, not back into the call — isolating the two streams and avoiding
+  echo/feedback.
+- "Remote audio" is captured from the call app's output monitor, so the user's
+  own voice does not leak into the incoming path.
+
+---
+
+## 4. Overlay
 
 A small GTK4 `LayerShell` window (top-right, always on top but click-through
 when idle). It renders **cards**, each with a header line and a source/target
@@ -138,10 +193,10 @@ text pair.
               ┌──────────────────────────────┐
               │                              │
     mic/ASR  ─┴─▶  DRAFT  ──(endpoint)──▶  READY ──(Speak)──▶ SPOKEN ──▶ fade
-              │       ▲                                           
-              │       │(ASR revision)                             
-              │       │(user edit → re-translate back to?)        
-              └───────┘                                           
+              │       ▲
+              │       │(ASR revision)
+              │       │(user edit → re-translate back to?)
+              └───────┘
 
    incoming: DRAFT ──(endpoint/punct)──▶ INCOMING ──▶ auto-fade / scroll
 ```
@@ -160,7 +215,7 @@ Transitions the controller is allowed to request: `draft`, `ready`, `spoken`,
 
 ---
 
-## 4. Control surface (hotkeys)
+## 5. Control surface (hotkeys)
 
 Chosen to avoid the existing Voxtype F9 plugin entirely:
 
@@ -169,7 +224,7 @@ Chosen to avoid the existing Voxtype F9 plugin entirely:
 | `F10` | Start outgoing English→Spanish (push-to-talk) |
 | `F10` release | Finalize recognition (endpoint) |
 | `Shift+F10` | Start outgoing Spanish→English |
-| `F11` | Speak the current Ready card (send to Piper) |
+| `F11` | Speak the current Ready card (send to TTS) |
 | `F12` | Dismiss/clear overlay |
 | `Shift+F12` | Pause/resume incoming translation |
 
@@ -178,35 +233,40 @@ The controller is the single owner of hotkey handling (mapped in
 
 ---
 
-## 5. Data flow contract (each hop)
+## 6. Data flow contract (each hop)
 
 | Hop | In | Out | Transport |
 |---|---|---|---|
 | mic → ASR | PCM16 16 kHz mono | partials/final text | WebSocket `/v1/audio/transcriptions/realtime` |
 | ASR → NMT | `{q, source, target}` | `{translatedText}` | HTTP POST LibreTranslate `/translate` |
-| NMT → TTS | text | WAV | `piper --model … --output-raw` (stdin/stdout) |
-| TTS → call | PCM16 24/22k | audio routed to speaker | PipeWire (not mic) |
+| NMT → TTS | text | WAV/PCM | HTTP POST NeMo `/v1/audio/speech` (MagpieTTS) |
+| TTS → call | PCM16 | audio routed to virtual mic | PipeWire null/loopback source |
 | controller → overlay | JSON state command | render | local socket / stdin pipe |
 | hotkeys → controller | JSON command | action | HTTP POST to local control server |
 
 ---
 
-## 6. Config (minimal)
+## 7. Config (minimal)
 
 ```toml
 [paths]
 nemo_speech = "~/.local/bin/nemo-speech"
-piper = "/usr/bin/piper"
 
 [asr]
 model = "nemotron-3.5"          # indexed name, pulls q8_0
 device = "vulkan:0"
 preload_stdcxx = true           # apply LD_PRELOAD workaround
 
+[tts]
+engine = "magpie"               # or "piper" fallback
+# piper_voice_en = "en_US-lessac-medium"
+# piper_voice_es = "es_ES-davefx-medium"
+
 [outgoing]
 language = "en-US"
 target   = "es"
 auto_speak_after_ms = 0         # 0 = manual (Speak key) required
+virtual_mic = "olt-virtual-mic" # PipeWire source selected in the call app
 
 [incoming]
 enabled           = true
@@ -214,9 +274,9 @@ source_language   = "es-ES"     # what the remote speaker uses
 target            = "en"
 source_device     = "…monitor"  # PipeWire monitor source id/name
 
-[tts]
-voice_en = "en_US-lessac-medium"
-voice_es = "es_ES-davefx-medium"
+[incoming_tts]                  # Phase 2
+enabled = false
+sink     = "…headphones"
 
 [overlay]
 position = "top-right"
@@ -224,24 +284,36 @@ position = "top-right"
 
 ---
 
-## 7. Failure & lifecycle rules
+## 8. Failure & lifecycle rules
 
 - If `nemo-speech` dies, the controller restarts it and reconnects; the overlay
   shows a "reconnecting" hint, never a crash.
 - A failed translation request leaves the card in **Ready** (re-editable), never
   silently drops text.
-- Piper is spawned per utterance and reaped; a TTS failure marks the card
-  **Draft** again with an error hint.
+- TTS failures mark the card **Draft** again with an error hint.
 - The overlay is disposable; killing it does not stop translation, and the
   controller re-spawns it.
 
 ---
 
-## 8. What we deliberately avoid
+## 9. What we deliberately avoid
 
-- **No second Voxtype daemon.** NeMo is a separate process.
-- **No full-duplex echo.** Incoming is display-only by default; outgoing is
-  ask-first. Auto-speak on incoming TTS is a later, opt-in feature.
+- **No second Voxtype daemon.** NeMo is a separate process; Voxtype stays
+  untouched as the dictation plugin.
+- **No full-duplex echo.** Incoming is display-only in Phase 1; outgoing is
+  ask-first. Incoming speech-to-speech (Phase 2) is opt-in and routed to
+  headphones, never back into the call.
 - **No framework in the overlay.** Plain GTK4 via PyGObject, no Quickshell/EGUI
   dependency for the first version (we can revisit if polish demands it).
-- **No monolithic runtime.** Three tools, one controller.
+- **No Riva Translate 4B.** LibreTranslate stays the NMT; NeMo is used only for
+  ASR and TTS.
+
+---
+
+## 10. Phasing
+
+| Phase | Scope |
+|---|---|
+| **1** | Outgoing PTT + on-screen incoming translation (2a + 2b) |
+| **2** | Incoming speech-to-speech into headphones (2c), opt-in |
+| **3** | Polish: overlay editing UX, auto-speak tuning, packaging as an Omarchy plugin |
