@@ -34,7 +34,7 @@ if [ "$ACTION" = "diagnostics" ]; then
     curl -fsS --max-time 3 http://127.0.0.1:8670/status 2>&1 || echo "(controller not responding)"
     echo
     echo "--- recent log (olt) ---"
-    journalctl --user -t olt --no-pager -n 40 2>&1
+    journalctl --user -u omarchy-live-translator.service --no-pager -n 40 2>&1
     echo
     echo "--- recent log (libretranslate-live) ---"
     journalctl --user -u libretranslate-live.service --no-pager -n 20 2>&1
