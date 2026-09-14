@@ -134,7 +134,12 @@ class OverlayApp:
 
         self.cards: dict[str, Gtk.Box] = {}
 
-        self.window.present()
+        # Hidden until the first card appears (e.g. F10 press).
+        self.window.set_visible(False)
+
+    def _update_visibility(self) -> None:
+        visible = bool(self.cards) or bool(self.hint_label.get_text())
+        self.window.set_visible(visible)
 
     # -- rendering ---------------------------------------------------------
 
@@ -169,6 +174,7 @@ class OverlayApp:
         border.append(frame)
         self.box.append(border)
         self.cards[card_id] = border
+        self._update_visibility()
 
     def state(self, card_id: str, state: str):
         pass
@@ -177,15 +183,18 @@ class OverlayApp:
         frame = self.cards.pop(card_id, None)
         if frame is not None:
             self.box.remove(frame)
+        self._update_visibility()
 
     def clear_all(self):
         for frame in self.cards.values():
             self.box.remove(frame)
         self.cards.clear()
+        self._update_visibility()
 
     def hint(self, text: str):
         self.hint_label.set_text(text)
         self.hint_label.set_visible(bool(text))
+        self._update_visibility()
 
     # -- stdin protocol ----------------------------------------------------
 

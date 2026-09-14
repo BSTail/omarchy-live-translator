@@ -224,11 +224,10 @@ Transitions the controller is allowed to request: `draft`, `ready`, `spoken`,
 
 ### Theming
 
-The overlay must follow the OS/Omarchy theme rather than hardcoded colors.
-Prefer the current GTK theme (`@theme_*` colors / `Adw` styling) and
-`$OMARCHY_PATH` theme variables where available, with the Draft/Ready/Spoken
-states expressed through opacity, weight, and semantic accents (green/blue)
-that respect the active theme. Current hardcoded hex colors are a placeholder.
+The overlay follows the **active Omarchy theme** dynamically — no hardcoded
+colors. See `docs/THEMING.md` for the exact mechanism (how the active theme is
+resolved, how its colors and gradient border are turned into GTK CSS, and the
+pitfalls to avoid).
 
 ---
 
