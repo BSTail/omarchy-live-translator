@@ -186,10 +186,12 @@ The controller process and overlay state machine are specified in
 - [x] ASR accuracy calibration against two verbatim Spanish reference clips
       (`~/Downloads/es-calibrate-{1,2}.{m4a,txt}`). Findings: audio levels are
       healthy (peak −0.5/−3.2 dBFS, RMS ~−25 dBFS); the streaming RNNT model
-      hallucinates extra fluent content on long continuous speech (confirmed by
-      speech-duration math: 26 s of speech vs ~80 output words ≈ 3.1 wps);
-      pre-processing, `rnnt_right_context`, language prompt, punctuation, and
-      batching do not improve it. Accuracy on real speech ≈ 6–7/10.
+      produces extra fluent-looking content on long continuous speech (cause
+      unverified — see review notes below); pre-processing, `rnnt_right_context`,
+      language prompt, punctuation, and batching do not improve it. Accuracy on
+      real speech ≈ 6–7/10. NOTE: the earlier WER numbers were computed with
+      `difflib.SequenceMatcher`, which does not guarantee minimum edit distance,
+      so they are not defensible as WER; re-scoring with jiwer is pending.
 
 ### In progress
 
@@ -197,6 +199,27 @@ The controller process and overlay state machine are specified in
 
 ### To do (prioritised)
 
+- [ ] **Fix incoming-loop audio loss (critical, found in review)** — in
+      `_incoming_once`, when `.completed` arrives the controller awaits NMT while
+      the pump keeps pushing newly-captured audio into a stream whose results are
+      never read, then tears down capture and reopens it. Audio spoken during
+      translation is silently dropped, and the reopen adds a capture gap. Fix:
+      keep capture alive across finalization, give chunks monotonic sample
+      offsets, queue finals to background workers, assign bounded audio ranges to
+      utterance IDs. Do this before the model work.
+- [ ] **Re-score ASR accuracy properly** — replace the `difflib`-based WER with
+      jiwer (minimum edit distance), report S/D/I breakdowns + alignments, and
+      document normalization (numbers, accent stripping). Keep the verbatim
+      reference text authoritative; have a Spanish speaker arbitrate the
+      disputed "extra content" passages rather than assuming hallucination.
+- [ ] **Head-to-head architecture comparison** (replaces the "confirmed two-tier
+      plan"): (a) buffered/chunked Parakeet-only vs (b) Nemotron draft →
+      Parakeet refine. Measure draft latency, final latency, and text stability
+      on short utterances and uninterrupted speech. NVIDIA's Parakeet model card
+      documents buffered streaming via NeMo; the installed C++ `serve` runtime
+      rejects Parakeet's native streaming path, but buffered chunking is a
+      distinct path that has not been benchmarked. Decide on evidence, not on
+      the earlier unverified "offline-only" conclusion.
 - [ ] **Clipboard translation** (planned): a button + hotkey that translates the
       current clipboard text in both directions (auto-detect en/es), ready to
       paste. Direction follows the configured language pair.
@@ -210,21 +233,24 @@ The controller process and overlay state machine are specified in
       a slider threshold for a few seconds → don't send audio to ASR). Panel
       gets a "minimum signal level" slider, default low. Threshold should be
       DISABLED while an active call is happening (user confirmed). Design open:
-      gate ASR vs. mute overlay vs. both.
+      gate ASR vs. mute overlay vs. both. Gating must not starve ASR of trailing
+      silence (or endpointing never completes); call detection needs explicit
+      design (`media.role=Communication` is a hint, plus a manual override).
 - [ ] **Two-tier incoming translation** (user idea, under discussion): a fast
       streaming model renders short (2–3 s) provisional chunks in a lighter
-      "draft" style, while a more accurate offline model (Parakeet TDT 0.6B v3,
-      now benchmarked) re-translates longer utterance-level chunks and replaces
-      the draft text in place (no scrolling duplicates).
+      "draft" style, while a more accurate offline model (Parakeet TDT 0.6B v3)
+      re-translates longer utterance-level chunks and replaces the draft text in
+      place. Note: current drafts show source-only (empty target) — translated
+      provisional drafts are not yet implemented. Re-run NMT when Parakeet
+      revises the source transcript.
 - [x] **Evaluate a higher-accuracy ASR model** — `parakeet-tdt` (0.6B v3) pulled
-      and benchmarked against the two verbatim calibration clips (Vulkan, q8_0):
-      WER 64.4% / 34.8% vs Nemotron 3.5 streaming 83.1% / 45.5%. Parakeet is
-      clearly more accurate but is **offline-only** (`--stream` fails: "this
-      transducer encoder is offline-only"). It is also ~4× faster on a 15 s
-      chunk (~1.1 s vs ~4.3 s). This confirms the two-tier plan: Parakeet TDT
-      as the accurate utterance-level re-transcriber, Nemotron 3.5 (or another
-      streaming model) for provisional drafts. Canary 1B Flash / v2 still
-      candidates for later (bigger, direct speech translation).
+      and timed against the two calibration clips (Vulkan, q8_0). Preliminary
+      (non-authoritative) WER via difflib suggested Parakeet is more accurate
+      and ~4× faster on a 15 s file transcription (~1.1 s vs ~4.3 s, both
+      including subprocess startup). CAVEATS from review: the "offline-only"
+      conclusion is too broad (NVIDIA documents buffered streaming for Parakeet
+      via NeMo), and the two-model plan is not yet justified — needs the
+      head-to-head above. Canary 1B Flash / v2 remain candidates for later.
 - [ ] Analyze recorded daughter WAVs (level/bandwidth/silence) to guide child
       speech improvements.
 - [ ] Translation-speed benchmark using recorded WAVs (sentence length and
@@ -233,11 +259,39 @@ The controller process and overlay state machine are specified in
       proto (`asr.tokenizer.spm_model`); reconvert model or find a GGUF that
       includes it. Feasibility verified (2.37 GB .nemo + torch venv).
 - [ ] Endpointing / VAD tuning for continuous speech (long unbroken utterances
-      delay `.completed` finals; consider shorter EOU threshold or VAD).
+      delay `.completed` finals; consider shorter EOU threshold or VAD). Note:
+      raising the EOU window to 1600 ms only waits longer for silence — it does
+      not impose a maximum utterance length; continuous speech needs an explicit
+      duration cap + context-preserving split.
 - [ ] Latency tuning for live calls (chunk size, streaming config).
 - [ ] Phase 2: incoming speech-to-speech into headphones (opt-in).
 - [ ] Test on a real video/voice call.
 - [ ] Model / voice management (upgrade models, pick languages) — deferred.
+
+### Review findings (independent agent, 2026-09-14)
+
+An external review identified the following. Items 1–4 are being addressed now.
+
+1. **Incoming audio loss around finalization (bug).** See the fix above.
+2. **WER methodology.** `difflib.SequenceMatcher` ≠ minimum edit distance;
+   recalculate with jiwer and report S/D/I. Two clips are smoke tests, not proof.
+3. **"Parakeet offline-only" too broad.** Buffered/chunked streaming exists in
+   NeMo; benchmark it before committing to two resident models.
+4. **Drafts are not translated drafts.** Partials render source-only; add
+   translated snapshots with revision IDs, and re-run NMT when the source is
+   revised.
+5. **Overlay ordering/cancellation.** Separate creation order from revision
+   order; preserve scroll during refinement; tag jobs with a generation ID so
+   clear/pause/direction/stop invalidate stale results.
+6. **Resource claims unverified.** File-transcription speed ≠ live latency; two
+   resident models ≠ double GPU memory; test concurrency under real load.
+7. **Gating/headphones nuances.** Gating can starve endpointing; headphones stop
+   acoustic (not digital) feedback — TTS into the captured sink's monitor still
+   loops.
+8. **Misc.** Fixed +6 dB preamp can clip; debug WAVs are post-processing (keep
+   raw for comparison); custom WS client lacks ping/pong/fragmentation; installed
+   build 404s on the documented `/v1/audio/transcriptions/realtime` (version
+   pinning).
 
 ## Privacy
 

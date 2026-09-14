@@ -106,25 +106,43 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
     Danna (cousin), Roblox/Robus/Roblo/robla.
 
 ## Next up (user's priority)
+- **FIX FIRST — incoming audio loss around finalization (bug, found in review)**:
+  in `_incoming_once`, when `.completed` arrives the controller awaits NMT while
+  the pump keeps pushing fresh audio into a stream whose results are never read,
+  then tears down capture and reopens it → audio spoken during translation is
+  dropped + capture gap. Fix: keep capture alive across finalization, monotonic
+  sample offsets, queue finals to background workers, bounded audio ranges per
+  utterance. Do this before any model work.
+- **Re-score WER properly**: replace `difflib`-based WER with jiwer (minimum edit
+  distance), report S/D/I + alignments, document normalization. Keep verbatim
+  refs authoritative; Spanish speaker arbitrates disputed "extra content"
+  (hallucination was over-claimed). Prior difflib WER numbers are NOT valid WER.
+- **Head-to-head architecture comparison** (NOT a confirmed two-tier plan yet):
+  (a) buffered/chunked Parakeet-only vs (b) Nemotron draft → Parakeet refine.
+  Measure draft latency / final latency / text stability on short + continuous
+  speech. NVIDIA's Parakeet card documents buffered streaming via NeMo; the C++
+  `serve` runtime rejecting Parakeet `--stream` is NOT the same as "can't stream".
+  Decide on evidence.
 - **Two-tier incoming translation** (user idea, under discussion): fast streaming
   model renders short (2–3 s) provisional chunks in a lighter "draft" style;
-  a more accurate offline model (Canary/Parakeet TDT) re-translates longer
+  a more accurate offline model (Parakeet TDT) re-translates longer
   utterance-level chunks and replaces the draft text in place (no scrolling).
+  NOTE: current drafts show source-only (empty target) — translated provisional
+  drafts not yet implemented; re-run NMT when Parakeet revises the source.
 - **Auto-detect input level (gating)** — user idea, agreed in principle: gate
-  incoming translation on a minimum monitor signal level (rolling RMS below a
-  slider threshold for a few seconds → don't send audio to ASR). Panel gets a
-  "minimum signal level" slider, default low. IMPORTANT: threshold should be
-  DISABLED while an active call is happening (user confirmed) so in-call
-  silence isn't dropped. Design still open: gate ASR vs. mute overlay vs. both.
-- **Evaluate a higher-accuracy ASR model**: Parakeet TDT 0.6B v3 (es WER 3.45%
-  FLEURS, official GGUF, offline/buffered), Canary 1B Flash (883M), Canary 1B
-  v2 (978M, 25 langs, direct speech translation). None streaming; need a
-  buffered-chunking path. Next: pull `parakeet-tdt` and benchmark against the
-  calibration clips.
+  incoming translation on a minimum monitor signal level. Panel slider, default
+  low. DISABLED while an active call is happening (user confirmed). Gating must
+  not starve ASR of trailing silence (or endpointing never completes); call
+  detection needs explicit design (`media.role=Communication` + manual override).
+- **Evaluate a higher-accuracy ASR model**: Parakeet TDT 0.6B v3 pulled + timed
+  (Vulkan q8_0): preliminary difflib WER 64.4%/34.8% vs Nemotron 83.1%/45.5%;
+  15 s file transcription ~1.1 s vs ~4.3 s (both incl. subprocess startup).
+  CAVEAT: difflib ≠ minimum edit distance; re-score with jiwer. Canary 1B Flash /
+  v2 remain candidates.
 - Calibration clips: `~/Downloads/es-calibrate-{1,2}.{m4a,txt}` (verbatim
-  reference). Current model hallucinates extra content on long continuous
-  speech; accuracy ≈ 6–7/10. Pre-processing / right_context / language prompt
-  / punctuation / batching don't help.
+  reference). Streaming model produces extra fluent-looking content on long
+  continuous speech (cause unverified). Accuracy ≈ 6–7/10. Pre-processing /
+  right_context / language prompt / punctuation / batching don't help.
 - Analyze the recorded daughter WAVs in `~/.local/state/omarchy-live-translator/debug/`
   (level/bandwidth/silence) to explain why child speech is still hard. NOTE:
   match each WAV to the event timestamp; the newest WAV is often post-audio
@@ -143,6 +161,20 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 - Then: package as an Omarchy plugin (installer, config, docs) — LAST step.
 - Then: endpointing/VAD tuning; Phase 2 incoming speech-to-speech (opt-in).
   Model/voice management deferred.
+
+## Review findings (independent agent, 2026-09-14) — being addressed now
+1. Incoming audio loss around finalization (bug) — see FIX FIRST above.
+2. WER methodology: `difflib.SequenceMatcher` ≠ minimum edit distance; use jiwer.
+3. "Parakeet offline-only" too broad; buffered chunking exists in NeMo.
+4. Drafts are source-only (not translated drafts).
+5. Overlay: separate creation vs revision order; preserve scroll; generation IDs
+   to invalidate stale results on clear/pause/direction/stop.
+6. Resource claims unverified (file speed ≠ live latency; 2 models ≠ 2× VRAM).
+7. Gating can starve endpointing; headphones stop acoustic (not digital) feedback
+   — TTS into the captured sink's monitor still loops.
+8. Misc: +6 dB preamp can clip; debug WAVs are post-processing; custom WS client
+   lacks ping/pong/fragmentation; installed build 404s on documented
+   `/v1/audio/transcriptions/realtime` (version pinning).
 
 ## Naming / branding
 - Plugin renamed to **OmaTranslate** (`bstail.omatranslate`) — manifest,
