@@ -103,7 +103,7 @@ class Config:
     # Testing aid: when enabled, every capture is dumped to a timestamped WAV
     # file in debug_dir so waveforms can be inspected (level, bandwidth,
     # silence). debug_keep bounds how many capture files are retained.
-    debug_capture: bool = False
+    debug_capture: bool = True
     debug_dir: str = str(Path.home() / ".local" / "state" / "omarchy-live-translator" / "debug")
     debug_keep: int = 20
 

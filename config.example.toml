@@ -48,7 +48,7 @@ multimedia_endpointing_ms = 1600
 
 [glossary]
 enabled = true
-phrases = ["Matt", "Mat", "Mac", "Max", "amat", "mc", "mcway", "Roblox", "Robus", "Roblo", "robla"]
+phrases = ["Matt", "Mat", "Mac", "Max", "amat", "mc", "mcway", "Mattacito", "Maxacito", "Danna", "Roblox", "Robus", "Roblo", "robla"]
 boost = 3.0
 
 [activation]

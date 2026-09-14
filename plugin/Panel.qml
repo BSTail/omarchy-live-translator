@@ -34,7 +34,7 @@ Panel {
   property bool activationEnabled: false
   property string activationClass: ""
   property string activationTitle: ""
-  property bool debugCapture: false
+  property bool debugCapture: true
 
   property bool pending: false
 
@@ -131,7 +131,7 @@ Panel {
             root.activationClass = d.activation.app_class || ""
             root.activationTitle = d.activation.app_title || ""
           }
-          root.debugCapture = !!d.debug_capture
+          root.debugCapture = d.debug_capture !== false
         } catch (e) {
           root.serviceRunning = false
         }
