@@ -36,6 +36,10 @@ class Controller:
         self._overlay_stdin = None
         self._card_seq = 0
         self._incoming_card_id: str | None = None
+        # Bumped whenever incoming is cleared/paused/restarted/direction-changed.
+        # Background finalizers capture it and drop their result if it no longer
+        # matches, so stale translations can't resurrect a cleared card.
+        self._incoming_gen = 0
 
     # -- overlay -----------------------------------------------------------
 
@@ -359,10 +363,15 @@ class Controller:
             speech_contexts=self._speech_contexts(),
         )
         await cap.start()
+        # One capture + one ASR stream stay open across consecutive utterances;
+        # we never tear them down between finals. This is the fix for audio
+        # being dropped while a final was being translated (the old code awaited
+        # NMT inline and then re-opened capture, losing whatever arrived during
+        # the translate). Finals are now handed to background workers.
+        gen = self._incoming_gen
         card_id = self._next_card("in")
         self._incoming_card_id = card_id
         partial = ""
-        t_first_delta: float | None = None
         t_asr_final: float | None = None
         t_capture_start = time.monotonic()
         try:
@@ -381,60 +390,81 @@ class Controller:
                     log.error("incoming pump error: %s", exc)
 
             pump_task = asyncio.create_task(pump())
-            async for ev in stream.events():
-                t = ev.get("type")
-                if t == "conversation.item.input_audio_transcription.delta":
-                    if t_first_delta is None and ev.get("delta", "").strip():
-                        t_first_delta = time.monotonic()
-                    partial = (partial + ev.get("delta", "")).strip()
-                    self.overlay_send(
-                        {"cmd": "card", "id": card_id, "direction": "in",
-                         "source": partial, "target": "", "state": "draft"}
-                    )
-                elif t == "conversation.item.input_audio_transcription.completed":
-                    final = ev.get("transcript", partial).strip()
-                    t_asr_final = time.monotonic()
-                    if final:
-                        t_nmt0 = time.monotonic()
-                        try:
-                            translated = await self.nmt.translate(
-                                final,
-                                self.cfg.incoming.source_language[:2],
-                                self.cfg.incoming.target,
-                            )
-                        except Exception as exc:
-                            translated = f"[translation failed: {exc}]"
-                        nmt_ms = (time.monotonic() - t_nmt0) * 1000
-                        log.info("incoming translated (%s→%s): %r → %r",
-                                 self.cfg.incoming.source_language[:2],
-                                 self.cfg.incoming.target, final, translated)
-                        asr_ms = (
-                            round((t_asr_final - t_capture_start) * 1000, 1)
-                            if t_asr_final is not None else None
-                        )
-                        logging.log_event({
-                            "kind": "incoming",
-                            "direction": f"{self.cfg.incoming.source_language[:2]}→{self.cfg.incoming.target}",
-                            "card": card_id,
-                            "source": final,
-                            "target": translated,
-                            "asr_ms": asr_ms,
-                            "nmt_ms": round(nmt_ms, 1),
-                            "multimedia": self.cfg.incoming.multimedia,
-                        })
+            try:
+                async for ev in stream.events():
+                    t = ev.get("type")
+                    if t == "conversation.item.input_audio_transcription.delta":
+                        partial = (partial + ev.get("delta", "")).strip()
                         self.overlay_send(
                             {"cmd": "card", "id": card_id, "direction": "in",
-                             "source": final, "target": translated,
-                             "state": "incoming"}
+                             "source": partial, "target": "", "state": "draft"}
                         )
-                    pump_task.cancel()
-                    break
+                    elif t == "conversation.item.input_audio_transcription.completed":
+                        final = ev.get("transcript", partial).strip()
+                        t_asr_final = time.monotonic()
+                        if final:
+                            # Translate off the event loop so the next
+                            # utterance's deltas are consumed immediately.
+                            asyncio.create_task(
+                                self._finalize_incoming(
+                                    card_id, final, gen,
+                                    t_capture_start, t_asr_final,
+                                )
+                            )
+                        # Start a fresh card for the next utterance.
+                        card_id = self._next_card("in")
+                        self._incoming_card_id = card_id
+                        partial = ""
+                        t_capture_start = time.monotonic()
+                        audio.prune_debug_dir(self.cfg)
+            finally:
+                pump_task.cancel()
+                try:
+                    await pump_task
+                except (asyncio.CancelledError, Exception):
+                    pass
         finally:
             await cap.stop()
             await stream.close()
             if self._incoming_card_id == card_id:
                 self._incoming_card_id = None
-            audio.prune_debug_dir(self.cfg)
+
+    async def _finalize_incoming(
+        self,
+        card_id: str,
+        final: str,
+        gen: int,
+        t_capture_start: float,
+        t_asr_final: float,
+    ) -> None:
+        """Translate a final utterance and update its card, dropping if stale."""
+        src = self.cfg.incoming.source_language[:2]
+        tgt = self.cfg.incoming.target
+        t_nmt0 = time.monotonic()
+        try:
+            translated = await self.nmt.translate(final, src, tgt)
+        except Exception as exc:
+            translated = f"[translation failed: {exc}]"
+        nmt_ms = (time.monotonic() - t_nmt0) * 1000
+        if gen != self._incoming_gen:
+            log.info("dropping stale incoming final (gen %d != %d)", gen, self._incoming_gen)
+            return
+        asr_ms = round((t_asr_final - t_capture_start) * 1000, 1)
+        logging.log_event({
+            "kind": "incoming",
+            "direction": f"{src}→{tgt}",
+            "card": card_id,
+            "source": final,
+            "target": translated,
+            "asr_ms": asr_ms,
+            "nmt_ms": round(nmt_ms, 1),
+            "multimedia": self.cfg.incoming.multimedia,
+        })
+        log.info("incoming translated (%s→%s): %r → %r", src, tgt, final, translated)
+        self.overlay_send(
+            {"cmd": "card", "id": card_id, "direction": "in",
+             "source": final, "target": translated, "state": "incoming"}
+        )
 
     # -- control server ----------------------------------------------------
 
@@ -501,6 +531,7 @@ class Controller:
         elif action == "clear":
             self.overlay_send({"cmd": "clear_all"})
             self._incoming_card_id = None
+            self._incoming_gen += 1
         elif action == "clear_logs":
             self.clear_logs()
         elif action == "pause_incoming":
@@ -508,6 +539,7 @@ class Controller:
                 self.incoming_task.cancel()
                 self.incoming_task = None
                 self._incoming_card_id = None
+                self._incoming_gen += 1
                 log.info("incoming paused")
             else:
                 self.incoming_task = asyncio.create_task(self.incoming())
@@ -529,6 +561,7 @@ class Controller:
                 self.incoming_task.cancel()
                 self.incoming_task = None
                 self._incoming_card_id = None
+                self._incoming_gen += 1
                 log.info("incoming disabled via settings")
         if "direction" in settings:
             direction = settings["direction"]
@@ -615,6 +648,7 @@ class Controller:
         """Reconnect the incoming stream so stream-level settings take effect."""
         if self.incoming_task is not None and not self.incoming_task.done():
             self.incoming_task.cancel()
+            self._incoming_gen += 1
             try:
                 await self.incoming_task
             except asyncio.CancelledError:
@@ -656,6 +690,7 @@ class Controller:
             log.error("clear_logs failed: %s", exc)
         self.overlay_send({"cmd": "clear_all"})
         self._incoming_card_id = None
+        self._incoming_gen += 1
         log.info("cleared %d log/history file(s)", removed)
 
     def status(self) -> dict:
