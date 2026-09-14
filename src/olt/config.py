@@ -25,9 +25,11 @@ class ASRConfig:
     host: str = "127.0.0.1"
     # Two-tier accuracy: a second, offline-only model (Parakeet TDT) that
     # re-transcribes each final utterance for a more accurate replacement.
+    # On by default: the overhead is a small second resident model and a few
+    # hundred ms per final, which is well worth the accuracy gain.
     offline_model: str = "parakeet-tdt"
     offline_port: int = 8081
-    offline_enabled: bool = False
+    offline_enabled: bool = True
 
 
 @dataclass

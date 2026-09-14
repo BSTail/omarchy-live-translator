@@ -140,12 +140,12 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   the utterance and POSTs it to Parakeet via `transcribe_offline()`
   (multipart); a background task re-transcribes + re-translates and updates the
   card IN PLACE (same id) if text differs. Generation counter drops stale
-  refinements. `_snapshot_utterance_audio` skips sub-300ms utterances (empty
+  refinements.   `_snapshot_utterance_audio` skips sub-300ms utterances (empty
   WAV 500s Parakeet). Validated live: refine works, Parakeet more complete than
   Nemotron draft. Parakeet still misrecognizes ("caballete"→"caballo"/"horse").
-  Off by default (`offline_enabled=false`); needs a panel toggle + control
-  `set` action already wired (`two_tier`). Service restarted clean; verified
-  toggle on/off (Parakeet process starts/stops correctly).
+  **Default on** (`offline_enabled=true`); panel toggle "Two-tier accuracy"
+  turns it off. Control `set` action wired (`two_tier`). Service restarted
+  clean; verified toggle on/off (Parakeet process starts/stops correctly).
 - **Auto-detect input level (gating)** — user idea, agreed in principle: gate
   incoming translation on a minimum monitor signal level. Panel slider, default
   low. DISABLED while an active call is happening (user confirmed). Gating must
