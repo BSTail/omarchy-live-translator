@@ -1,5 +1,4 @@
 import QtQuick
-import Qt5Compat.GraphicalEffects
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -286,20 +285,9 @@ Panel {
               iconText: "\uf011"
               bordered: true
               foreground: root.bar.foreground
-              accent: Color.accent
+              accent: root.serviceRunning ? root.themeRed : root.themeAccent
               fontFamily: root.bar.fontFamily
               onClicked: root.toggleService()
-            }
-
-            Glow {
-              anchors.fill: headerButton
-              anchors.margins: -Style.space(8)
-              source: headerButton
-              radius: 10
-              samples: 17
-              spread: 0.4
-              color: root.serviceRunning ? root.themeRed : root.themeGreen
-              visible: true
             }
           }
 
