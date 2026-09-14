@@ -123,9 +123,16 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 - **Head-to-head architecture comparison** (NOT a confirmed two-tier plan yet):
   (a) buffered/chunked Parakeet-only vs (b) Nemotron draft → Parakeet refine.
   Measure draft latency / final latency / text stability on short + continuous
-  speech. NVIDIA's Parakeet card documents buffered streaming via NeMo; the C++
-  `serve` runtime rejecting Parakeet `--stream` is NOT the same as "can't stream".
-  Decide on evidence.
+  speech. DATA COLLECTED: Parakeet via persistent serve (POST
+  /v1/audio/transcriptions) is fast — 2s chunk ~0.29s, 3s ~0.12s, 5s ~0.14s,
+  8s ~0.18s; full 36s clip ~0.74s, 30s clip ~0.58s. C++ runtime
+  `streaming_recognize` is genuinely unavailable for Parakeet
+  (recognizer.cpp:209-214 throws "offline-only" for non-CTC heads without
+  cache streaming). So two-tier = Nemotron streaming drafts + Parakeet server
+  re-transcribing each final utterance (~0.1-0.3s added latency). Parakeet-only
+  streaming is impossible in this runtime (NeMo buffered chunking = separate
+  Python/torch stack). Remaining: measure end-to-end draft→final latency + text
+  stability on a real utterance stream before implementing.
 - **Two-tier incoming translation** (user idea, under discussion): fast streaming
   model renders short (2–3 s) provisional chunks in a lighter "draft" style;
   a more accurate offline model (Parakeet TDT) re-translates longer

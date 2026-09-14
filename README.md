@@ -229,6 +229,23 @@ The controller process and overlay state machine are specified in
       rejects Parakeet's native streaming path, but buffered chunking is a
       distinct path that has not been benchmarked. Decide on evidence, not on
       the earlier unverified "offline-only" conclusion.
+- [x] **Head-to-head latency data collected** (2026-09-14, Vulkan q8_0):
+      - Parakeet via a persistent `serve` process (`POST /v1/audio/transcriptions`)
+        is fast: 2 s chunk ≈ 0.29 s, 3 s ≈ 0.12 s, 5 s ≈ 0.14 s, 8 s ≈ 0.18 s
+        (steady-state; first request pays ~0.6 s warmup). Full 36 s clip 1
+        transcribes in ~0.74 s, clip 2 (~30 s) in ~0.58 s.
+      - The C++ runtime's `streaming_recognize` path is genuinely unavailable
+        for Parakeet: `make_runner()` throws "this transducer encoder is
+        offline-only" for any non-CTC head without `supports_cache_streaming()`
+        (src/asr/recognizer.cpp:209-214). So buffered file transcription is the
+        only Parakeet path in this runtime.
+      - Implication: a two-tier design can keep Nemotron streaming for drafts
+        and send each final utterance's audio to a persistent Parakeet server
+        for an accurate re-transcription with ~0.1-0.3 s added latency. A
+        Parakeet-only "streaming" path is not possible in this runtime; NeMo
+        buffered chunking would require a separate Python/torch stack.
+      - Remaining before implementation: measure end-to-end draft→final latency
+        and text stability on a real utterance stream (not just file timing).
 - [ ] **Clipboard translation** (planned): a button + hotkey that translates the
       current clipboard text in both directions (auto-detect en/es), ready to
       paste. Direction follows the configured language pair.
