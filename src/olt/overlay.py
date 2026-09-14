@@ -10,11 +10,10 @@ protocol over stdin. Each line is a command:
     {"cmd": "clear_all"}
     {"cmd": "hint", "text": "reconnecting…"}
 
-Theming follows the user's GTK theme (via GTK named colors and the standard
-`card` CSS class). No colors are hardcoded; semantic accents for Draft/Ready/
-Spoken/Incoming are expressed with GTK's `@accent_*`/`@success_*`/`@error_*`
-named colors where available, so the overlay adapts to whatever theme the user
-has set.
+Theming follows the user's GTK theme entirely through CSS classes and GTK
+named colors (@theme_bg_color, @theme_fg_color, @accent_color, @success_color).
+No Pango markup and no hardcoded colors are used, so the overlay adapts to
+whatever theme the user has set.
 """
 
 from __future__ import annotations
@@ -28,28 +27,45 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 from gi.repository import GLib, Gtk, Gtk4LayerShell  # noqa: E402
 
-# Semantic role per card state. These map to GTK named colors so the overlay
-# follows the active theme. "draft"/"ready" use the theme's foreground.
-STATE_ROLE = {
-    "draft": "foreground",
-    "ready": "foreground",
-    "spoken": "success",
-    "incoming": "accent",
+# CSS class per card state, resolved against GTK named colors.
+STATE_CLASS = {
+    "draft": "olt-draft",
+    "ready": "olt-ready",
+    "spoken": "olt-spoken",
+    "incoming": "olt-incoming",
 }
 
-# GTK named colors that represent each role, with graceful fallbacks.
-ROLE_COLORS = {
-    "foreground": "@theme_fg_color",
-    "success": "@success_color",
-    "accent": "@accent_color",
-}
-
-CARD_CSS = """
+CSS = """
 box.card {
     background: alpha(@theme_bg_color, 0.85);
     border: 1px solid alpha(@theme_fg_color, 0.12);
     border-radius: 8px;
     padding: 8px;
+}
+
+label.olt-src {
+    color: alpha(@theme_fg_color, 0.65);
+    font-size: 0.9em;
+}
+
+label.olt-target {
+    color: @theme_fg_color;
+}
+
+label.olt-draft {
+    color: alpha(@theme_fg_color, 0.55);
+}
+
+label.olt-ready {
+    color: @theme_fg_color;
+}
+
+label.olt-spoken {
+    color: @success_color;
+}
+
+label.olt-incoming {
+    color: @accent_color;
 }
 """
 
@@ -85,7 +101,7 @@ class OverlayApp:
         Gtk4LayerShell.set_margin(self.window, Gtk4LayerShell.Edge.LEFT, 12)
 
         self.css = Gtk.CssProvider()
-        self.css.load_from_string(CARD_CSS)
+        self.css.load_from_string(CSS)
         Gtk.StyleContext.add_provider_for_display(
             Gtk.Widget.get_display(self.window), self.css, 800
         )
@@ -105,33 +121,30 @@ class OverlayApp:
 
     # -- rendering ---------------------------------------------------------
 
-    def _label(self, text: str, role: str, size: str = "medium") -> Gtk.Label:
+    def _label(self, text: str, css_class: str) -> Gtk.Label:
         label = Gtk.Label(label=text)
         label.set_wrap(True)
         label.set_xalign(0.0)
         label.set_selectable(True)
-        color = ROLE_COLORS.get(role, "@theme_fg_color")
-        markup = GLib.markup_escape_text(text)
-        if size == "small":
-            label.set_markup(f'<span size="small" color="{color}">{markup}</span>')
-        else:
-            label.set_markup(f'<span color="{color}">{markup}</span>')
+        label.add_css_class(css_class)
         return label
 
     def card(self, card_id: str, direction: str, source: str, target: str, state: str):
         if card_id in self.cards:
             self.box.remove(self.cards[card_id])
-        role = STATE_ROLE.get(state, "foreground")
+        state_class = STATE_CLASS.get(state, "olt-draft")
 
         frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         frame.add_css_class("card")
 
         if direction == "out":
-            frame.append(self._label(source, "foreground", "small"))
-            frame.append(self._label(target, role))
+            # Source (what the user said) on top, translation below.
+            frame.append(self._label(source, "olt-src"))
+            frame.append(self._label(target, state_class))
         else:
-            frame.append(self._label(target, role))
-            frame.append(self._label(source, "foreground", "small"))
+            # Incoming: translation first, original beneath.
+            frame.append(self._label(target, state_class))
+            frame.append(self._label(source, "olt-src"))
 
         self.box.append(frame)
         self.cards[card_id] = frame
