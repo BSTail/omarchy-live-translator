@@ -23,11 +23,23 @@ gi.require_version("Gtk4LayerShell", "1.0")
 from gi.repository import GLib, Gtk, Gtk4LayerShell  # noqa: E402
 
 STATE_COLORS = {
-    "draft": "rgba(255,255,255,0.55)",
-    "ready": "rgba(255,255,255,0.95)",
-    "spoken": "rgba(120,220,140,0.9)",
-    "incoming": "rgba(140,190,255,0.95)",
+    "draft": "#ffffff",
+    "ready": "#ffffff",
+    "spoken": "#78dc8c",
+    "incoming": "#8cbeff",
 }
+
+
+def _rgba_to_hex(rgba: str) -> str:
+    # GTK markup needs #rrggbb; convert "rgba(r,g,b,a)" by dropping alpha.
+    if rgba.startswith("rgba("):
+        parts = rgba[5:-1].split(",")
+        try:
+            r, g, b = int(parts[0]), int(parts[1]), int(parts[2])
+            return f"#{r:02x}{g:02x}{b:02x}"
+        except (ValueError, IndexError):
+            pass
+    return "#ffffff"
 
 
 class OverlayApp:
@@ -102,11 +114,11 @@ class OverlayApp:
         frame.get_style_context().add_provider(css, 800)
 
         if direction == "out":
-            frame.append(self._label(source, "rgba(220,220,220,0.9)", "small"))
+            frame.append(self._label(source, "#dcdcdc", "small"))
             frame.append(self._label(target, color))
         else:
             frame.append(self._label(target, color))
-            frame.append(self._label(source, "rgba(220,220,220,0.7)", "small"))
+            frame.append(self._label(source, "#dcdcdc", "small"))
 
         self.box.append(frame)
         self.cards[card_id] = frame

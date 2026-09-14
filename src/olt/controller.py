@@ -76,7 +76,7 @@ class Controller:
         self._card_seq += 1
         return f"{direction}-{self._card_seq}"
 
-    async def outgoing(self, source_lang: str, target: str) -> None:
+    async def outgoing(self, source_lang: str, target: str, stop_event: asyncio.Event) -> None:
         card_id = self._next_card("out")
         self.overlay_send(
             {"cmd": "card", "id": card_id, "direction": "out",
@@ -86,9 +86,10 @@ class Controller:
         stream = await self.asr.connect_stream(source_lang)
         await cap.start()
         log.info("outgoing started (%s→%s)", source_lang, target)
+        partial = ""
+        pump_task: asyncio.Task | None = None
+        finalized = False
         try:
-            partial = ""
-
             async def pump():
                 while True:
                     chunk = await cap.read_chunk(160)
@@ -97,22 +98,40 @@ class Controller:
                     await stream.send_audio(chunk)
 
             pump_task = asyncio.create_task(pump())
-            async for ev in stream.events():
-                t = ev.get("type")
-                if t == "conversation.item.input_audio_transcription.delta":
-                    partial = (partial + ev.get("delta", "")).strip()
-                    self.overlay_send(
-                        {"cmd": "card", "id": card_id, "direction": "out",
-                         "source": partial, "target": "", "state": "draft"}
-                    )
-                elif t == "conversation.item.input_audio_transcription.completed":
-                    final = ev.get("transcript", partial).strip()
-                    await stream.commit()
-                    pump_task.cancel()
-                    await cap.stop()
-                    await self._finalize_outgoing(card_id, final, source_lang, target)
-                    return
+
+            async def reader():
+                nonlocal partial, finalized
+                async for ev in stream.events():
+                    t = ev.get("type")
+                    if t == "conversation.item.input_audio_transcription.delta":
+                        partial = (partial + ev.get("delta", "")).strip()
+                        self.overlay_send(
+                            {"cmd": "card", "id": card_id, "direction": "out",
+                             "source": partial, "target": "", "state": "draft"}
+                        )
+                    elif t == "conversation.item.input_audio_transcription.completed":
+                        final = ev.get("transcript", partial).strip()
+                        finalized = True
+                        await self._finalize_outgoing(card_id, final, source_lang, target)
+                        return
+
+            reader_task = asyncio.create_task(reader())
+
+            # Wait for either the push-to-talk release or a natural endpoint.
+            await stop_event.wait()
+            log.info("outgoing stop requested; finalizing")
+            await cap.stop()
+            pump_task.cancel()
+            await stream.commit()
+            try:
+                await asyncio.wait_for(reader_task, timeout=30)
+            except asyncio.TimeoutError:
+                log.warning("outgoing finalize timed out")
+                if partial and not finalized:
+                    await self._finalize_outgoing(card_id, partial, source_lang, target)
         finally:
+            if pump_task and not pump_task.done():
+                pump_task.cancel()
             await cap.stop()
             await stream.close()
 
@@ -155,12 +174,17 @@ class Controller:
                                "source": card["source"], "target": card["target"],
                                "state": "ready"})
             return
-        await self._play_to_virtual_mic(wav)
+        await self._play(wav)
         self._ready_card = None
 
-    async def _play_to_virtual_mic(self, wav: bytes) -> None:
-        # Ensure the virtual mic (null sink + monitor) exists, then play into it.
-        self._ensure_virtual_mic()
+    async def _play(self, wav: bytes) -> None:
+        dest = self.cfg.outgoing.output_destination
+        if dest == "speakers":
+            await self._play_to_device(wav, self.cfg.outgoing.speakers_sink)
+        else:
+            await self._play_to_virtual_mic(wav)
+
+    async def _play_to_device(self, wav: bytes, device: str) -> None:
         proc = await asyncio.create_subprocess_exec(
             "paplay",
             "--raw",
@@ -168,7 +192,7 @@ class Controller:
             "--format=s16le",
             "--channels=1",
             "--device",
-            self.cfg.outgoing.virtual_mic,
+            device,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
@@ -176,6 +200,11 @@ class Controller:
         _, err = await proc.communicate(input=wav)
         if proc.returncode != 0:
             log.error("paplay failed: %s", err.decode(errors="replace"))
+
+    async def _play_to_virtual_mic(self, wav: bytes) -> None:
+        # Ensure the virtual mic (null sink + monitor) exists, then play into it.
+        self._ensure_virtual_mic()
+        await self._play_to_device(wav, self.cfg.outgoing.virtual_mic)
 
     def _ensure_virtual_mic(self) -> None:
         name = self.cfg.outgoing.virtual_mic
@@ -304,10 +333,14 @@ class Controller:
             target = msg.get("target", self.cfg.outgoing.target)
             if self.outgoing_task and not self.outgoing_task.done():
                 self.outgoing_task.cancel()
-            self.outgoing_task = asyncio.create_task(self.outgoing(source, target))
+            self._ptt_stop_event = asyncio.Event()
+            self.outgoing_task = asyncio.create_task(
+                self.outgoing(source, target, self._ptt_stop_event)
+            )
         elif action == "ptt_stop":
-            if self.outgoing_task and not self.outgoing_task.done():
-                self.outgoing_task.cancel()
+            stop_ev = getattr(self, "_ptt_stop_event", None)
+            if stop_ev is not None:
+                stop_ev.set()
         elif action == "speak":
             await self.speak_ready()
         elif action == "clear":

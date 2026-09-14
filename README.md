@@ -126,14 +126,16 @@ The controller process and overlay state machine are specified in
 - [x] Implement the controller process (Python, asyncio): config, logging,
       NeMo ASR client, LibreTranslate + Piper clients, audio capture, GTK4
       overlay, and control server.
-- [ ] Wire Hyprland hotkeys and run end-to-end.
+- [x] Wire Hyprland hotkeys (F10/Shift+F10, F11, F12/Shift+F12).
+- [x] Install as a systemd user service; outgoing PTT verified (mic → ASR →
+      overlay Draft; F11 → TTS).
 
 ### To do
 
-- [ ] Wire Hyprland hotkeys (separate from the F9 dictation plugin).
-- [ ] Install as a systemd user service; first live-call test.
 - [ ] Endpointing / VAD for automatic incoming segmentation.
 - [ ] Latency tuning for live calls (chunk size, streaming config).
+- [ ] Build bar widget: start/stop (own services) + settings toggles.
+- [ ] Theme the overlay to follow the OS theme.
 - [ ] Phase 2: incoming speech-to-speech into headphones (opt-in).
 - [ ] Package as an Omarchy plugin (installer, config, docs).
 - [ ] Test on a real video/voice call.

@@ -222,6 +222,14 @@ Transitions the controller is allowed to request: `draft`, `ready`, `spoken`,
 - Incoming cards show the translated target first (it is the useful part) with
   the original beneath in smaller text.
 
+### Theming
+
+The overlay must follow the OS/Omarchy theme rather than hardcoded colors.
+Prefer the current GTK theme (`@theme_*` colors / `Adw` styling) and
+`$OMARCHY_PATH` theme variables where available, with the Draft/Ready/Spoken
+states expressed through opacity, weight, and semantic accents (green/blue)
+that respect the active theme. Current hardcoded hex colors are a placeholder.
+
 ---
 
 ## 5. Control surface (hotkeys)
@@ -284,7 +292,7 @@ The widget never touches the dictation plugin's services.
 | mic → ASR | PCM16 16 kHz mono | partials/final text | WebSocket `/v1/audio/transcriptions/realtime` |
 | ASR → NMT | `{q, source, target}` | `{translatedText}` | HTTP POST LibreTranslate `/translate` |
 | NMT → TTS | text | WAV/PCM | `piper --model … --output-raw` (stdin/stdout) |
-| TTS → call | PCM16 | audio routed to virtual mic | PipeWire null/loopback source |
+| TTS → call | PCM16 | audio routed to virtual mic or speakers | PipeWire null/loopback source, or the chosen sink |
 | controller → overlay | JSON state command | render | local socket / stdin pipe |
 | hotkeys → controller | JSON command | action | HTTP POST to local control server |
 
@@ -311,7 +319,9 @@ voice_es = "es_ES-davefx-medium"
 language = "en-US"
 target   = "es"
 auto_speak_after_ms = 0         # 0 = manual (Speak key) required
+output_destination = "virtual_mic"  # "virtual_mic" | "speakers"
 virtual_mic = "olt-virtual-mic" # PipeWire source selected in the call app
+speakers_sink = "@DEFAULT_SINK@"    # used when output_destination = "speakers"
 
 [incoming]
 enabled           = true

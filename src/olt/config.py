@@ -39,7 +39,9 @@ class OutgoingConfig:
     language: str = "en-US"
     target: str = "es"
     auto_speak_after_ms: int = 0  # 0 = manual (Speak key) required
+    output_destination: str = "virtual_mic"  # "virtual_mic" | "speakers"
     virtual_mic: str = "olt-virtual-mic"
+    speakers_sink: str = "@DEFAULT_SINK@"
 
 
 @dataclass
@@ -120,7 +122,11 @@ def load(path: str | None = None) -> Config:
     cfg.outgoing.auto_speak_after_ms = out.get(
         "auto_speak_after_ms", cfg.outgoing.auto_speak_after_ms
     )
+    cfg.outgoing.output_destination = out.get(
+        "output_destination", cfg.outgoing.output_destination
+    )
     cfg.outgoing.virtual_mic = out.get("virtual_mic", cfg.outgoing.virtual_mic)
+    cfg.outgoing.speakers_sink = out.get("speakers_sink", cfg.outgoing.speakers_sink)
 
     inc = section("incoming")
     cfg.incoming.enabled = inc.get("enabled", cfg.incoming.enabled)
