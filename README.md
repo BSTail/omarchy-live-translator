@@ -140,6 +140,14 @@ The controller process and overlay state machine are specified in
   - [x] Per-app activation (only translate while the call app is focused).
   - [x] Diagnostics button (floating terminal: `olt-ctl diagnostics`).
 - [x] Controller `/status` endpoint + `olt-ctl status` / `olt-ctl diagnostics`.
+- [x] Incoming translation working end-to-end (monitor capture → ASR → NMT →
+      overlay). Requires `--asr.endpointing.enable=true` so the server emits
+      `.completed` finals on trailing silence for the continuous monitor stream.
+- [x] Speakers/virtual-mic output toggle (speakers for testing, virtual mic for
+      calls); auto-pause incoming during TTS playback to break the echo loop.
+- [x] F12 `clear` also drops the current incoming card (no stale card lingering).
+- [x] Validated multimedia translation: Spanish YouTube audio → English overlay
+      (accurate; long unbroken speech delays finals — endpointing tuning pending).
 
 ### In progress
 
@@ -148,7 +156,8 @@ The controller process and overlay state machine are specified in
 ### To do (prioritised)
 
 - [ ] Package as an Omarchy plugin (installer, config, docs).
-- [ ] Endpointing / VAD for automatic incoming segmentation.
+- [ ] Endpointing / VAD tuning for continuous speech (long unbroken utterances
+      delay `.completed` finals; consider shorter EOU threshold or VAD).
 - [ ] Latency tuning for live calls (chunk size, streaming config).
 - [ ] Phase 2: incoming speech-to-speech into headphones (opt-in).
 - [ ] Test on a real video/voice call.
