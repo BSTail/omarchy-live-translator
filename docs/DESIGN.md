@@ -33,19 +33,21 @@ hyprland bindings
       ▼
 ┌────────────────────────────┐        ┌──────────────────────────────┐
 │        controller          │  HTTP  │   nemo-speech serve           │
-│   (python, asyncio;        │◀─────▶│   ASR + TTS (MagpieTTS)        │
+│   (python, asyncio;        │◀─────▶│   ASR only                     │
 │    local HTTP control +    │   WS   │   nemotron-3.5 0.6B, Vulkan   │
 │    overlay ownership)      │        │   /v1/audio/transcriptions/…  │
-└───────────┬────────────────┘        │   /v1/audio/speech           │
-            │ HTTP                    └──────────────────────────────┘
+└───────────┬────────────────┘        └──────────────────────────────┘
+            │ HTTP
             ├──▶ LibreTranslate  (127.0.0.1:5000, en↔es)
+            ├──▶ Piper TTS       (per-utterance; stdin text → stdout WAV)
             └──▶ overlay         (own process; controller pokes it)
 ```
 
 | Process | Starts | Communication | Notes |
 |---|---|---|---|
-| `nemo-speech serve` | controller | HTTP + WebSocket | ASR **and** TTS (MagpieTTS); validated on Vulkan |
+| `nemo-speech serve` | controller | HTTP + WebSocket | ASR only; validated on Vulkan |
 | `libretranslate` | user (systemd) | HTTP POST `/translate` | existing, `en_es` model |
+| `piper` | controller, per utterance | stdin text → stdout WAV | short-lived, no daemon |
 | `overlay` | controller | local IPC (JSON over stdin / dbus-free) | GTK4 layer-shell window |
 | `controller` | user (systemd user unit) | — | owns everything |
 
@@ -56,15 +58,22 @@ hyprland bindings
 - The ASR already exposes a clean HTTP/WebSocket API, so the controller only
   does orchestration, not DSP.
 
-### TTS: NeMo MagpieTTS first, Piper as fallback
+### TTS: Piper primary, MagpieTTS rejected for now
 
-NeMo already ships **MagpieTTS Multilingual 357M** (+ NanoCodec), covering both
-Spanish and English, and exposes it through `/v1/audio/speech`. That keeps the
-plugin to **two engines** (NeMo + LibreTranslate) instead of three.
+We evaluated NeMo's MagpieTTS and decided against it for live outgoing speech.
+Findings on this hardware (Intel Arc, Vulkan):
 
-- **Primary:** MagpieTTS via NeMo.
-- **Fallback:** Piper, only if MagpieTTS Spanish quality is unacceptable on this
-  hardware. (Quick quality check: one Spanish sentence → WAV → listen.)
+- **Sub-realtime.** Spanish and English synthesis both ran at ~0.79x realtime
+  (6.5 s of audio took ~9.7 s to synthesize) — too slow for a live call.
+- **No Vulkan benefit.** CPU and Vulkan were effectively identical (both
+  ~0.78x), and both saturated CPU cores; the Arc GPU did not accelerate TTS.
+- **Cannot co-reside with ASR.** `nemo-speech serve --asr-model … --tts-model
+  magpie` crashed at warmup with `GGML_ASSERT(ne3 == ne13) failed` in
+  `ggml-cpu.c`. ASR-only serve works; ASR+TTS in one server does not.
+
+So TTS uses **Piper** (20–50x realtime on CPU), spawned per utterance, keeping
+the plugin to three small tools. MagpieTTS is the fallback if Piper's Spanish
+quality is unacceptable, and only as a separate short-lived process.
 
 We do **not** use NeMo's Riva Translate 4B for translation — it is a 4B model
 that would have to load on Vulkan alongside ASR, and it is unproven on Arc.
@@ -74,8 +83,8 @@ LibreTranslate is already running, tiny, and proven, so it remains the NMT.
 
 ## 2. Controller responsibilities (single-threaded, `asyncio`)
 
-1. Spawn `nemo-speech serve` with the ASR model, TTS model, Vulkan backend, and
-   the `LD_PRELOAD` workaround applied.
+1. Spawn `nemo-speech serve` with the ASR model, Vulkan backend, and the
+   `LD_PRELOAD` workaround applied.
 2. Run a tiny local HTTP control server (e.g. `127.0.0.1:8670`) for hotkeys and
    the overlay. Commands arrive as JSON POSTs.
 3. Own the overlay process; send it state updates over a local socket.
@@ -92,7 +101,7 @@ Triggered by `F10` (English→Spanish) or `Shift+F10` (Spanish→English).
                                                         ▼
                                                [ NMT again if edited ]
                                                         ▼
-                                             [ TTS (MagpieTTS) ] → [ virtual mic ]
+                                             [ TTS (Piper) ] → [ virtual mic ]
                                                         ▼
                                                [ overlay: Spoken ]
 ```
@@ -239,7 +248,7 @@ The controller is the single owner of hotkey handling (mapped in
 |---|---|---|---|
 | mic → ASR | PCM16 16 kHz mono | partials/final text | WebSocket `/v1/audio/transcriptions/realtime` |
 | ASR → NMT | `{q, source, target}` | `{translatedText}` | HTTP POST LibreTranslate `/translate` |
-| NMT → TTS | text | WAV/PCM | HTTP POST NeMo `/v1/audio/speech` (MagpieTTS) |
+| NMT → TTS | text | WAV/PCM | `piper --model … --output-raw` (stdin/stdout) |
 | TTS → call | PCM16 | audio routed to virtual mic | PipeWire null/loopback source |
 | controller → overlay | JSON state command | render | local socket / stdin pipe |
 | hotkeys → controller | JSON command | action | HTTP POST to local control server |
@@ -251,6 +260,7 @@ The controller is the single owner of hotkey handling (mapped in
 ```toml
 [paths]
 nemo_speech = "~/.local/bin/nemo-speech"
+piper       = "/usr/bin/piper"
 
 [asr]
 model = "nemotron-3.5"          # indexed name, pulls q8_0
@@ -258,9 +268,9 @@ device = "vulkan:0"
 preload_stdcxx = true           # apply LD_PRELOAD workaround
 
 [tts]
-engine = "magpie"               # or "piper" fallback
-# piper_voice_en = "en_US-lessac-medium"
-# piper_voice_es = "es_ES-davefx-medium"
+engine = "piper"                # or "magpie" fallback
+voice_en = "en_US-lessac-medium"
+voice_es = "es_ES-davefx-medium"
 
 [outgoing]
 language = "en-US"
@@ -306,7 +316,9 @@ position = "top-right"
 - **No framework in the overlay.** Plain GTK4 via PyGObject, no Quickshell/EGUI
   dependency for the first version (we can revisit if polish demands it).
 - **No Riva Translate 4B.** LibreTranslate stays the NMT; NeMo is used only for
-  ASR and TTS.
+  ASR.
+- **No MagpieTTS (for now).** Sub-realtime and no Vulkan benefit on Arc; Piper is
+  the TTS engine. See "TTS" in section 1.
 
 ---
 
@@ -317,3 +329,19 @@ position = "top-right"
 | **1** | Outgoing PTT + on-screen incoming translation (2a + 2b) |
 | **2** | Incoming speech-to-speech into headphones (2c), opt-in |
 | **3** | Polish: overlay editing UX, auto-speak tuning, packaging as an Omarchy plugin |
+
+---
+
+## 11. Known upstream issues to watch
+
+Open GitHub issues on `NVIDIA/NeMo-Speech.cpp` that affect our plans:
+
+| Issue | Relevance |
+|---|---|
+| [#22](https://github.com/NVIDIA/NeMo-Speech.cpp/issues/22) — streaming ASR leaks previous-turn punctuation into the next final | affects incoming endpointing; watch before relying on auto-punctuation across turns |
+| [#40](https://github.com/NVIDIA/NeMo-Speech.cpp/issues/40) — token-silence EOU misfires mid-sentence and corrupts transcript | affects incoming segmentation; prefer VAD over token-silence endpointing |
+| [#23](https://github.com/NVIDIA/NeMo-Speech.cpp/issues/23) — v0.1.0 `cpu` tarball SIGILLs on AVX2-only machines | does **not** affect us: we use the Vulkan variant |
+
+The ASR-only `serve` + realtime WebSocket path we depend on is validated and
+working; the issues above concern endpointing behaviour, which we control via
+VAD configuration rather than the token-silence default.

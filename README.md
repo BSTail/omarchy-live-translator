@@ -29,24 +29,24 @@ Two lightweight local speech stacks that coexist without overlap:
 - **Voxtype** (unchanged) — the multilingual dictation plugin (F9 / Shift+F9).
 - **NeMo** (this plugin) — live call translation (F10+).
 
-This plugin uses **two engines**: NeMo for ASR + TTS, and LibreTranslate for
-translation.
+This plugin uses **three small engines**: NeMo for ASR, LibreTranslate for
+translation, and Piper for TTS.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        omarchy-live-translator                   │
 │                                                                 │
-│  ┌──────────────────┐          ┌──────────────┐                 │
-│  │  NeMo-Speech.cpp │─────────▶│ LibreTranslate│                 │
-│  │  ASR + TTS       │          │  (en↔es NMT) │                 │
-│  │  (MagpieTTS)     │          └──────────────┘                 │
-│  └──────────────────┘                 │                          │
-│        ▲                               ▼                          │
-│        │ mic / monitor          ┌──────────────┐                 │
-│        │                        │  Controller  │──▶ overlay      │
-│        └────────────────────────┴──────────────┘   (Draft/Ready/│
-│                                virtual mic /       Spoken)       │
-│                                headphones (Phase 2)              │
+│  ┌──────────────────┐   ┌──────────────┐   ┌────────────┐       │
+│  │  NeMo-Speech.cpp │──▶│ LibreTranslate│──▶│  Piper TTS │       │
+│  │  (ASR)           │   │  (en↔es NMT) │   │  (es/en)   │       │
+│  └──────────────────┘   └──────────────┘   └────────────┘       │
+│        ▲                       │                  │              │
+│        │ mic / monitor         │                  ▼              │
+│        │                       │            virtual mic /        │
+│        │                       ▼            headphones (Phase 2) │
+│        │               ┌──────────────┐                          │
+│        └───────────────│  Controller  │──▶ overlay               │
+│                        └──────────────┘   (Draft/Ready/Spoken)   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,7 +54,7 @@ translation.
 |---|---|---|---|
 | ASR (speech → text) | Recognize English and Spanish | NeMo-Speech.cpp, `nemotron-3.5-asr-streaming-0.6b` (q8_0), Vulkan backend | Validated |
 | NMT (text → text) | Translate en ↔ es | LibreTranslate (already running locally, `en_es`) | Existing |
-| TTS (text → speech) | Speak the translated text | NeMo MagpieTTS 357M (Piper as fallback) | To validate |
+| TTS (text → speech) | Speak the translated text | Piper (Spanish + English voices) | To integrate |
 | Overlay | Bilingual live text review | Hyprland layer-shell / GTK4 window | To build |
 | Hotkeys | Push-to-talk + mode toggle | Hyprland bindings (separate from F9) | To build |
 
@@ -67,12 +67,15 @@ translation.
 - Vulkan backend uses the Intel Arc GPU.
 - Also provides TTS (MagpieTTS), so the plugin needs only two engines.
 
-### Why LibreTranslate (and not Riva Translate 4B)
+### Why LibreTranslate + Piper (and not Riva Translate 4B / MagpieTTS)
 
 LibreTranslate is already running, tiny, and proven for en↔es. NeMo's Riva
 Translate 4B would have to load on Vulkan alongside ASR and is unproven on Arc,
-so it is not used. Piper is kept only as a TTS fallback if MagpieTTS Spanish
-quality falls short.
+so it is not used.
+
+MagpieTTS was evaluated and rejected for now: it runs sub-realtime (~0.79x) with
+no Vulkan benefit on Arc, and crashes when served alongside ASR in the same
+process. Piper (20–50x realtime on CPU) is the TTS engine instead.
 
 ## Hardware validation
 
@@ -84,6 +87,7 @@ Mesa Vulkan driver.
 | CPU (AVX2) | Voxtype Whisper `small` | ~0.7× realtime — too slow for live calls |
 | Vulkan (Arc) | Voxtype Whisper `small` | ~18× realtime |
 | Vulkan (Arc) | NeMo Nemotron 3.5 ASR 0.6B | ~3.2 s for 11 s audio (streaming), accurate Spanish |
+| Vulkan (Arc) | NeMo MagpieTTS 357M | ~0.79x realtime, no Vulkan benefit — rejected for live TTS |
 
 ### Known issue (NeMo Vulkan)
 
@@ -121,7 +125,7 @@ The controller process and overlay state machine are specified in
 
 ### To do
 
-- [ ] Validate MagpieTTS Spanish quality (one sentence → WAV → listen); fall back to Piper if needed.
+- [ ] Integrate Piper TTS (Spanish + English voices) for outgoing speech.
 - [ ] Capture incoming audio via PipeWire monitor source (call audio → ASR).
 - [ ] Wire outgoing push-to-talk (mic → ASR → NMT → overlay → TTS → virtual mic).
 - [ ] Build the floating bilingual overlay with Draft / Ready / Spoken states.
