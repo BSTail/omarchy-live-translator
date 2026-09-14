@@ -148,6 +148,9 @@ The controller process and overlay state machine are specified in
 - [x] F12 `clear` also drops the current incoming card (no stale card lingering).
 - [x] Validated multimedia translation: Spanish YouTube audio → English overlay
       (accurate; long unbroken speech delays finals — endpointing tuning pending).
+- [x] Multimedia mode toggle (longer EOU window for continuous media speech).
+- [x] Unified overlay: all cards in one scrollable panel, newest at top, capped
+      to screen height.
 
 ### In progress
 
