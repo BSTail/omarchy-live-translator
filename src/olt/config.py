@@ -51,6 +51,11 @@ class IncomingConfig:
     target: str = "en"
     source_device: str = "@DEFAULT_MONITOR@"
     endpointing_ms: int = 800
+    # Multimedia mode: media audio is continuous, so use a longer EOU window
+    # to segment long unbroken speech into cards instead of waiting for a
+    # long silence that never comes.
+    multimedia: bool = False
+    multimedia_endpointing_ms: int = 1600
 
 
 @dataclass
@@ -150,6 +155,10 @@ def load(path: str | None = None) -> Config:
     cfg.incoming.target = inc.get("target", cfg.incoming.target)
     cfg.incoming.source_device = inc.get("source_device", cfg.incoming.source_device)
     cfg.incoming.endpointing_ms = inc.get("endpointing_ms", cfg.incoming.endpointing_ms)
+    cfg.incoming.multimedia = inc.get("multimedia", cfg.incoming.multimedia)
+    cfg.incoming.multimedia_endpointing_ms = inc.get(
+        "multimedia_endpointing_ms", cfg.incoming.multimedia_endpointing_ms
+    )
 
     gl = section("glossary")
     cfg.glossary.enabled = gl.get("enabled", cfg.glossary.enabled)

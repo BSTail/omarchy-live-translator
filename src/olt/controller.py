@@ -307,9 +307,14 @@ class Controller:
             await asyncio.sleep(0.5)
             return
         cap = audio.Capture(self.cfg.incoming.source_device)
+        eou_ms = (
+            self.cfg.incoming.multimedia_endpointing_ms
+            if self.cfg.incoming.multimedia
+            else self.cfg.incoming.endpointing_ms
+        )
         stream = await self.asr.connect_stream(
             self.cfg.incoming.source_language,
-            endpointing_ms=self.cfg.incoming.endpointing_ms,
+            endpointing_ms=eou_ms,
             speech_contexts=self._speech_contexts(),
         )
         await cap.start()
@@ -474,6 +479,9 @@ class Controller:
                 self.cfg.incoming.source_language = "en-US"
                 self.cfg.incoming.target = "es"
             log.info("incoming direction set to %s", direction)
+        if "multimedia" in settings:
+            self.cfg.incoming.multimedia = bool(settings["multimedia"])
+            log.info("multimedia mode set to %s", self.cfg.incoming.multimedia)
         if "glossary" in settings:
             gl = settings["glossary"]
             if isinstance(gl, dict):
@@ -514,6 +522,7 @@ class Controller:
             "output_destination": self.cfg.outgoing.output_destination,
             "incoming_enabled": incoming_running,
             "incoming_direction": "es-en" if self.cfg.incoming.source_language.startswith("es") else "en-es",
+            "multimedia": self.cfg.incoming.multimedia,
             "glossary": {
                 "enabled": self.cfg.glossary.enabled,
                 "phrases": self.cfg.glossary.phrases,

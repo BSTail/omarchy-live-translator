@@ -26,6 +26,7 @@ Panel {
   property string outputDestination: "speakers"
   property bool incomingEnabled: true
   property string incomingDirection: "es-en"
+  property bool multimedia: false
   property bool glossaryEnabled: false
   property var glossaryPhrases: []
   property real glossaryBoost: 3.0
@@ -111,6 +112,7 @@ Panel {
           root.outputDestination = d.output_destination || "speakers"
           root.incomingEnabled = !!d.incoming_enabled
           root.incomingDirection = d.incoming_direction || "es-en"
+          root.multimedia = !!d.multimedia
           if (d.glossary) {
             root.glossaryEnabled = !!d.glossary.enabled
             root.glossaryPhrases = d.glossary.phrases || []
@@ -322,6 +324,20 @@ Panel {
             onChanged: function(v) {
               root.incomingDirection = v
               root.applySettings({ "incoming_direction": v })
+            }
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Multimedia mode"
+            description: "For videos/voice messages: segments long continuous speech into cards"
+            checked: root.multimedia
+            foreground: root.bar.foreground
+            accent: Color.accent
+            fontFamily: root.bar.fontFamily
+            onClicked: {
+              root.multimedia = !root.multimedia
+              root.applySettings({ "multimedia": root.multimedia })
             }
           }
 
