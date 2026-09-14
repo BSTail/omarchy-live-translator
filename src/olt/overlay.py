@@ -9,6 +9,12 @@ protocol over stdin. Each line is a command:
     {"cmd": "clear", "id": "out-1"}
     {"cmd": "clear_all"}
     {"cmd": "hint", "text": "reconnecting…"}
+
+Theming follows the user's GTK theme (via GTK named colors and the standard
+`card` CSS class). No colors are hardcoded; semantic accents for Draft/Ready/
+Spoken/Incoming are expressed with GTK's `@accent_*`/`@success_*`/`@error_*`
+named colors where available, so the overlay adapts to whatever theme the user
+has set.
 """
 
 from __future__ import annotations
@@ -22,24 +28,30 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 from gi.repository import GLib, Gtk, Gtk4LayerShell  # noqa: E402
 
-STATE_COLORS = {
-    "draft": "#ffffff",
-    "ready": "#ffffff",
-    "spoken": "#78dc8c",
-    "incoming": "#8cbeff",
+# Semantic role per card state. These map to GTK named colors so the overlay
+# follows the active theme. "draft"/"ready" use the theme's foreground.
+STATE_ROLE = {
+    "draft": "foreground",
+    "ready": "foreground",
+    "spoken": "success",
+    "incoming": "accent",
 }
 
+# GTK named colors that represent each role, with graceful fallbacks.
+ROLE_COLORS = {
+    "foreground": "@theme_fg_color",
+    "success": "@success_color",
+    "accent": "@accent_color",
+}
 
-def _rgba_to_hex(rgba: str) -> str:
-    # GTK markup needs #rrggbb; convert "rgba(r,g,b,a)" by dropping alpha.
-    if rgba.startswith("rgba("):
-        parts = rgba[5:-1].split(",")
-        try:
-            r, g, b = int(parts[0]), int(parts[1]), int(parts[2])
-            return f"#{r:02x}{g:02x}{b:02x}"
-        except (ValueError, IndexError):
-            pass
-    return "#ffffff"
+CARD_CSS = """
+box.card {
+    background: alpha(@theme_bg_color, 0.85);
+    border: 1px solid alpha(@theme_fg_color, 0.12);
+    border-radius: 8px;
+    padding: 8px;
+}
+"""
 
 
 class OverlayApp:
@@ -72,6 +84,12 @@ class OverlayApp:
         Gtk4LayerShell.set_margin(self.window, Gtk4LayerShell.Edge.BOTTOM, 12)
         Gtk4LayerShell.set_margin(self.window, Gtk4LayerShell.Edge.LEFT, 12)
 
+        self.css = Gtk.CssProvider()
+        self.css.load_from_string(CARD_CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            Gtk.Widget.get_display(self.window), self.css, 800
+        )
+
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.box.set_vexpand(False)
         self.window.set_child(self.box)
@@ -87,11 +105,12 @@ class OverlayApp:
 
     # -- rendering ---------------------------------------------------------
 
-    def _label(self, text: str, color: str, size: str = "medium") -> Gtk.Label:
+    def _label(self, text: str, role: str, size: str = "medium") -> Gtk.Label:
         label = Gtk.Label(label=text)
         label.set_wrap(True)
         label.set_xalign(0.0)
         label.set_selectable(True)
+        color = ROLE_COLORS.get(role, "@theme_fg_color")
         markup = GLib.markup_escape_text(text)
         if size == "small":
             label.set_markup(f'<span size="small" color="{color}">{markup}</span>')
@@ -102,30 +121,23 @@ class OverlayApp:
     def card(self, card_id: str, direction: str, source: str, target: str, state: str):
         if card_id in self.cards:
             self.box.remove(self.cards[card_id])
-        color = STATE_COLORS.get(state, STATE_COLORS["draft"])
+        role = STATE_ROLE.get(state, "foreground")
 
         frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        css = Gtk.CssProvider()
-        css.load_from_string(
-            "box.card { background: rgba(20,20,24,0.85);"
-            " border-radius: 8px; padding: 8px; }"
-        )
         frame.add_css_class("card")
-        frame.get_style_context().add_provider(css, 800)
 
         if direction == "out":
-            frame.append(self._label(source, "#dcdcdc", "small"))
-            frame.append(self._label(target, color))
+            frame.append(self._label(source, "foreground", "small"))
+            frame.append(self._label(target, role))
         else:
-            frame.append(self._label(target, color))
-            frame.append(self._label(source, "#dcdcdc", "small"))
+            frame.append(self._label(target, role))
+            frame.append(self._label(source, "foreground", "small"))
 
         self.box.append(frame)
         self.cards[card_id] = frame
 
     def state(self, card_id: str, state: str):
-        # Simplest correct approach: re-render the card with the new state.
-        # The controller sends full card data on state changes.
+        # The controller re-sends full card data on state changes.
         pass
 
     def clear(self, card_id: str):
