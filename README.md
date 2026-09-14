@@ -143,16 +143,16 @@ The controller process and overlay state machine are specified in
 
 ### In progress
 
-- [ ] Model / voice management (upgrade models, pick languages) in the panel.
+- [ ] Package as an Omarchy plugin (installer, config, docs).
 
 ### To do (prioritised)
 
-- [ ] Model / voice management (upgrade models, pick languages).
+- [ ] Package as an Omarchy plugin (installer, config, docs).
 - [ ] Endpointing / VAD for automatic incoming segmentation.
 - [ ] Latency tuning for live calls (chunk size, streaming config).
 - [ ] Phase 2: incoming speech-to-speech into headphones (opt-in).
-- [ ] Package as an Omarchy plugin (installer, config, docs).
 - [ ] Test on a real video/voice call.
+- [ ] Model / voice management (upgrade models, pick languages) — deferred.
 
 ## Privacy
 
