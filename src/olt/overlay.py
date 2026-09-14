@@ -26,7 +26,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 from gi.repository import GLib, Gtk, Gtk4LayerShell  # noqa: E402
 
-from .theme import load_theme
+from .theme import border_gradient_css, load_theme
 
 STATE_CLASS = {
     "draft": "olt-draft",
@@ -37,16 +37,28 @@ STATE_CLASS = {
 
 
 def build_css(theme: dict) -> str:
-    if theme:
-        bg = theme.get("bg", "@theme_bg_color")
-        fg = theme.get("fg", "@theme_fg_color")
-        light_fg = theme.get("light_fg", theme.get("fg", "@theme_fg_color"))
-        accent = theme.get("accent", "@accent_color")
-        green = theme.get("green", "@success_color")
+    # All colors come from the active Omarchy theme (read dynamically at
+    # startup); nothing here is hardcoded. When no theme token is present we
+    # fall back to GTK's own named colors so it still follows the GTK theme.
+    bg = theme.get("bg", "@theme_bg_color")
+    fg = theme.get("fg", "@theme_fg_color")
+    light_fg = theme.get("light_fg", theme.get("fg", "@theme_fg_color"))
+    accent = theme.get("accent", "@accent_color")
+    green = theme.get("green", "@success_color")
+
+    grad = border_gradient_css(theme)
+    if grad:
+        # Gradient border: the outer box paints the theme's active-border
+        # gradient, the inner card paints the solid theme background, and the
+        # outer box's padding reveals the gradient as a thin ring.
         return f"""
+box.card-border {{
+    background-image: {grad};
+    border-radius: 10px;
+    padding: 2px;
+}}
 box.card {{
-    background: alpha({bg}, 0.85);
-    border: 1px solid alpha({fg}, 0.12);
+    background: alpha({bg}, 0.92);
     border-radius: 8px;
     padding: 8px;
 }}
@@ -57,19 +69,20 @@ label.olt-ready {{ color: {fg}; }}
 label.olt-spoken {{ color: {green}; }}
 label.olt-incoming {{ color: {accent}; }}
 """
-    return """
-box.card {
-    background: alpha(@theme_bg_color, 0.85);
-    border: 1px solid alpha(@theme_fg_color, 0.12);
+    return f"""
+box.card-border {{ background: none; padding: 0; }}
+box.card {{
+    background: alpha({bg}, 0.92);
+    border: 1px solid alpha({fg}, 0.15);
     border-radius: 8px;
     padding: 8px;
-}
-label.olt-src { color: alpha(@theme_fg_color, 0.65); font-size: 0.9em; }
-label.olt-target { color: @theme_fg_color; }
-label.olt-draft { color: alpha(@theme_fg_color, 0.55); }
-label.olt-ready { color: @theme_fg_color; }
-label.olt-spoken { color: @success_color; }
-label.olt-incoming { color: @accent_color; }
+}}
+label.olt-src {{ color: alpha({light_fg}, 0.65); font-size: 0.9em; }}
+label.olt-target {{ color: {fg}; }}
+label.olt-draft {{ color: alpha({fg}, 0.55); }}
+label.olt-ready {{ color: {fg}; }}
+label.olt-spoken {{ color: {green}; }}
+label.olt-incoming {{ color: {accent}; }}
 """
 
 
@@ -138,6 +151,11 @@ class OverlayApp:
             self.box.remove(self.cards[card_id])
         state_class = STATE_CLASS.get(state, "olt-draft")
 
+        # Outer border box carries the Omarchy gradient border; the inner card
+        # box carries the theme background.
+        border = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        border.add_css_class("card-border")
+
         frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         frame.add_css_class("card")
 
@@ -148,8 +166,9 @@ class OverlayApp:
             frame.append(self._label(target, state_class))
             frame.append(self._label(source, "olt-src"))
 
-        self.box.append(frame)
-        self.cards[card_id] = frame
+        border.append(frame)
+        self.box.append(border)
+        self.cards[card_id] = border
 
     def state(self, card_id: str, state: str):
         pass
