@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -36,6 +37,10 @@ class Controller:
     # -- overlay -----------------------------------------------------------
 
     async def start_overlay(self) -> None:
+        env = os.environ.copy()
+        # gtk4-layer-shell must be linked before libwayland-client; preloading
+        # it is the supported workaround for Python (PyGObject) apps.
+        env["LD_PRELOAD"] = "/usr/lib/libgtk4-layer-shell.so"
         self.overlay_proc = await asyncio.create_subprocess_exec(
             "python3",
             "-m",
@@ -44,6 +49,7 @@ class Controller:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         self._overlay_stdin = self.overlay_proc.stdin
         asyncio.create_task(self._watch_overlay_stderr())
@@ -82,8 +88,8 @@ class Controller:
         log.info("outgoing started (%s→%s)", source_lang, target)
         try:
             partial = ""
+
             async def pump():
-                nonlocal partial
                 while True:
                     chunk = await cap.read_chunk(160)
                     if not chunk:
@@ -203,11 +209,22 @@ class Controller:
 
     async def _incoming_once(self) -> None:
         cap = audio.Capture(self.cfg.incoming.source_device)
-        stream = await self.asr.connect_stream(self.cfg.incoming.source_language)
+        stream = await self.asr.connect_stream(
+            self.cfg.incoming.source_language,
+            endpointing_ms=self.cfg.incoming.endpointing_ms,
+        )
         await cap.start()
         card_id = self._next_card("in")
         partial = ""
         try:
+            async def pump():
+                while True:
+                    chunk = await cap.read_chunk(160)
+                    if not chunk:
+                        break
+                    await stream.send_audio(chunk)
+
+            pump_task = asyncio.create_task(pump())
             async for ev in stream.events():
                 t = ev.get("type")
                 if t == "conversation.item.input_audio_transcription.delta":
@@ -232,6 +249,7 @@ class Controller:
                              "source": final, "target": translated,
                              "state": "incoming"}
                         )
+                    pump_task.cancel()
                     break
         finally:
             await cap.stop()
@@ -302,8 +320,36 @@ class Controller:
             else:
                 self.incoming_task = asyncio.create_task(self.incoming())
                 log.info("incoming resumed")
+        elif action == "set":
+            self._apply_settings(msg.get("settings", {}))
         else:
             log.warning("unknown action: %s", action)
+
+    def _apply_settings(self, settings: dict) -> None:
+        if "incoming_enabled" in settings:
+            want = bool(settings["incoming_enabled"])
+            have = self.incoming_task is not None and not self.incoming_task.done()
+            if want and not have:
+                self.incoming_task = asyncio.create_task(self.incoming())
+                log.info("incoming enabled via settings")
+            elif not want and have:
+                self.incoming_task.cancel()
+                self.incoming_task = None
+                log.info("incoming disabled via settings")
+        if "direction" in settings:
+            direction = settings["direction"]
+            if direction == "en-es":
+                self.cfg.outgoing.language = "en-US"
+                self.cfg.outgoing.target = "es"
+            elif direction == "es-en":
+                self.cfg.outgoing.language = "es-ES"
+                self.cfg.outgoing.target = "en"
+            log.info("direction set to %s", direction)
+        if "auto_speak" in settings:
+            self.cfg.outgoing.auto_speak_after_ms = (
+                0 if not settings["auto_speak"] else 3000
+            )
+            log.info("auto_speak set to %s", bool(settings["auto_speak"]))
 
     # -- lifecycle ---------------------------------------------------------
 

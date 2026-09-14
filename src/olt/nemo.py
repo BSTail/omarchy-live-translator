@@ -121,17 +121,15 @@ class NemoASR:
     # -- WebSocket ---------------------------------------------------------
 
     async def connect_stream(
-        self, language: str, sample_rate: int = 16000
+        self, language: str, sample_rate: int = 16000, endpointing_ms: int | None = None
     ) -> "ASRStream":
         reader, writer = await asyncio.open_connection(self.cfg.host, self.cfg.port)
         await _ws_handshake(writer, reader, self.cfg.host, self.cfg.port)
         stream = ASRStream(reader, writer)
-        await stream.send_json(
-            {
-                "type": "session.update",
-                "session": {"language": language, "sample_rate": sample_rate},
-            }
-        )
+        session = {"language": language, "sample_rate": sample_rate}
+        if endpointing_ms is not None:
+            session["endpointing_ms"] = endpointing_ms
+        await stream.send_json({"type": "session.update", "session": session})
         return stream
 
 

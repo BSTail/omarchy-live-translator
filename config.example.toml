@@ -31,6 +31,7 @@ enabled = true
 source_language = "es-ES"
 target = "en"
 source_device = "@DEFAULT_MONITOR@"
+endpointing_ms = 800
 
 [overlay]
 position = "top-right"

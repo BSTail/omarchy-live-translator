@@ -48,6 +48,7 @@ class IncomingConfig:
     source_language: str = "es-ES"
     target: str = "en"
     source_device: str = "@DEFAULT_MONITOR@"
+    endpointing_ms: int = 800
 
 
 @dataclass
@@ -126,6 +127,7 @@ def load(path: str | None = None) -> Config:
     cfg.incoming.source_language = inc.get("source_language", cfg.incoming.source_language)
     cfg.incoming.target = inc.get("target", cfg.incoming.target)
     cfg.incoming.source_device = inc.get("source_device", cfg.incoming.source_device)
+    cfg.incoming.endpointing_ms = inc.get("endpointing_ms", cfg.incoming.endpointing_ms)
 
     ovl = section("overlay")
     cfg.overlay.position = ovl.get("position", cfg.overlay.position)

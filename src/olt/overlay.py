@@ -158,8 +158,9 @@ class OverlayApp:
 
     def run(self):
         GLib.io_add_watch(sys.stdin, GLib.IO_IN, self._stdin_cb)
-        self.window.connect("destroy", Gtk.main_quit)
-        Gtk.main()
+        self.window.connect("destroy", lambda *_: self.loop.quit())
+        self.loop = GLib.MainLoop()
+        self.loop.run()
 
     def _stdin_cb(self, source, condition):
         line = source.readline()

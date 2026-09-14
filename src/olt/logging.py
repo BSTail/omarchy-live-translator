@@ -60,9 +60,11 @@ def _build_logger(log_dir: Path | None, level: str) -> logging.Logger:
     return logger
 
 
-def setup(log_dir: Path | None = None, level: str = "INFO") -> logging.Logger:
+def setup(log_dir: Path | str | None = None, level: str = "INFO") -> logging.Logger:
     """Initialise logging. Call once at startup."""
     global _logger
+    if isinstance(log_dir, str):
+        log_dir = Path(log_dir)
     _logger = _build_logger(log_dir, level)
     return _logger
 
