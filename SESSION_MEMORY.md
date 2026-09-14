@@ -18,6 +18,11 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   (avoids intermittent `GGML_ASSERT(ne3 == ne13)` SIGABRT).
 - NeMo serve MUST run with `--asr.endpointing.enable=true`, else the incoming
   monitor stream never emits `.completed` finals (no translation cards).
+- Realtime WebSocket endpoint is `/v1/realtime` (NOT
+  `/v1/audio/transcriptions/realtime`, which 404s). The WS handshake must use
+  `reader.readuntil(b"\r\n\r\n")` — reading with `read(4096)` over-reads the
+  first `session.created` frame and desyncs the frame parser ("malformed ASR
+  frame" warnings, no finals).
 - Overlay: gtk4-layer-shell needs `LD_PRELOAD=/usr/lib/libgtk4-layer-shell.so`.
 - Overlay cards must be UPDATED IN PLACE (mutate label text/CSS classes), never
   remove+re-add inside the ScrolledWindow viewport (causes Gtk-CRITICAL
