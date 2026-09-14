@@ -132,20 +132,22 @@ The controller process and overlay state machine are specified in
 - [x] Hide overlay until first card / F10.
 - [x] Bar icon widget (`bstail.live-translator`): green/muted status glyph,
       left-click start/stop (own services only).
+- [x] Bar widget settings panel (left-click opens; Start/Stop moved inside):
+  - [x] Outgoing direction toggle (EN→ES / ES→EN).
+  - [x] Auto-speak after release (timer).
+  - [x] Incoming listen toggle + incoming direction (ES→EN / EN→ES).
+  - [x] Glossary / word-boost (NeMo `speech_contexts`) with add/remove chips.
+  - [x] Per-app activation (only translate while the call app is focused).
+  - [x] Diagnostics button (floating terminal: `olt-ctl diagnostics`).
+- [x] Controller `/status` endpoint + `olt-ctl status` / `olt-ctl diagnostics`.
 
 ### In progress
 
-- [ ] Bar widget settings panel (click to open).
+- [ ] Model / voice management (upgrade models, pick languages) in the panel.
 
 ### To do (prioritised)
 
-- [ ] Settings panel controls:
-  - [ ] Incoming direction toggle (source language: es / en).
-  - [ ] Auto-speak after release (timer).
-  - [ ] Glossary / word-boost (NeMo speech-context) for names and terms.
-  - [ ] Per-app activation (only run while the call app is focused).
-  - [ ] Model / voice management (upgrade models, pick languages).
-  - [ ] Diagnostics / log dump ("copy diagnostics" for bug reports).
+- [ ] Model / voice management (upgrade models, pick languages).
 - [ ] Endpointing / VAD for automatic incoming segmentation.
 - [ ] Latency tuning for live calls (chunk size, streaming config).
 - [ ] Phase 2: incoming speech-to-speech into headphones (opt-in).

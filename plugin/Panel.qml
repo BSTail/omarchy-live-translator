@@ -124,7 +124,7 @@ Panel {
         }
       }
     }
-    onFailed: root.serviceRunning = false
+    onExited: if (exitCode !== 0) root.serviceRunning = false
   }
 
   Process {
@@ -187,21 +187,24 @@ Panel {
           spacing: Style.space(10)
 
           // ---- header ----------------------------------------------------
-          Row {
+          Item {
             width: parent.width
             height: Style.space(40)
-            spacing: Style.space(12)
 
             Text {
+              id: headerGlyph
               text: "\uf1ab"
               color: root.serviceRunning ? Style.hoverStateColor(root.bar.foreground, Color.accent) : Qt.darker(root.bar.foreground, 1.5)
               font.family: root.bar.fontFamily
               font.pixelSize: Style.font.heading
+              anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
             }
 
             Column {
               id: headerText
+              anchors.left: headerGlyph.right
+              anchors.leftMargin: Style.space(12)
               anchors.verticalCenter: parent.verticalCenter
               spacing: Style.spacing.xs
 
@@ -221,13 +224,9 @@ Panel {
               }
             }
 
-            Item {
-              width: Math.max(0, parent.width - headerText.implicitWidth - Style.space(12) - headerButton.implicitWidth)
-              height: 1
-            }
-
             Button {
               id: headerButton
+              anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               text: root.serviceRunning ? "Stop" : "Start"
               iconText: "\uf011"
