@@ -374,14 +374,36 @@ class Controller:
         partial = ""
         t_asr_final: float | None = None
         t_capture_start = time.monotonic()
+        # Monotonic sample offsets. `cap.read_chunk` returns PCM16 frames of a
+        # fixed chunk size. We record how many sample bytes we've captured at
+        # the moment each final is emitted; combined with the server's
+        # `audio_processed` (stream-global seconds) this bounds the utterance's
+        # audio for offline re-transcription.
+        chunk_samples = int(audio.RATE * self.cfg.chunk_ms / 1000)
+        captured_bytes = 0
+        # Rolling ring of raw captured PCM16 (bytes). Offline re-transcription
+        # needs the *final* utterance's audio, which started before this final
+        # was emitted, so we keep a modest look-back. The server reports
+        # `audio_processed` (seconds) on each final; the difference between
+        # consecutive finals bounds the utterance length.
+        lookback_ms = 20000
+        self._incoming_ring = bytearray()
+        ring_cap = int(audio.RATE * 2 * lookback_ms / 1000)
+        prev_processed_sec = 0.0
         try:
             async def pump():
+                nonlocal captured_bytes
                 try:
                     while True:
                         chunk = await cap.read_chunk(self.cfg.chunk_ms)
                         if not chunk:
                             break
                         await stream.send_audio(chunk)
+                        if self.cfg.asr.offline_enabled:
+                            self._incoming_ring.extend(chunk)
+                            if len(self._incoming_ring) > ring_cap:
+                                del self._incoming_ring[: len(self._incoming_ring) - ring_cap]
+                        captured_bytes += len(chunk)
                 except (ConnectionResetError, OSError, asyncio.CancelledError):
                     # The socket can close when incoming is paused for TTS
                     # playback; the pump is done, not an error.
@@ -402,6 +424,13 @@ class Controller:
                     elif t == "conversation.item.input_audio_transcription.completed":
                         final = ev.get("transcript", partial).strip()
                         t_asr_final = time.monotonic()
+                        this_processed = float(ev.get("audio_processed") or 0.0)
+                        utterance_audio = b""
+                        if self.cfg.asr.offline_enabled:
+                            utterance_audio = self._snapshot_utterance_audio(
+                                this_processed, prev_processed_sec
+                            )
+                        prev_processed_sec = this_processed
                         if final:
                             # Translate off the event loop so the next
                             # utterance's deltas are consumed immediately.
@@ -409,6 +438,7 @@ class Controller:
                                 self._finalize_incoming(
                                     card_id, final, gen,
                                     t_capture_start, t_asr_final,
+                                    utterance_audio,
                                 )
                             )
                         # Start a fresh card for the next utterance.
@@ -429,6 +459,34 @@ class Controller:
             if self._incoming_card_id == card_id:
                 self._incoming_card_id = None
 
+    def _snapshot_utterance_audio(
+        self, this_processed_sec: float, prev_processed_sec: float
+    ) -> bytes:
+        """Return the PCM16 for the utterance that just finalized, or b"".
+
+        The server's `audio_processed` is a stream-global high-water mark in
+        seconds, so consecutive finals bound the utterance length. We take that
+        many seconds (plus a small endpointing margin) from the tail of the
+        capture ring. Best-effort: on any mismatch the streaming translation
+        remains authoritative.
+        """
+        ring = getattr(self, "_incoming_ring", None)
+        if not ring:
+            return b""
+        utt_len = max(this_processed_sec - prev_processed_sec, 0.0)
+        # Skip degenerate snapshots: an empty or sub-300ms utterance is not
+        # worth an offline round-trip (and an empty WAV 500s the server).
+        if utt_len < 0.3:
+            return b""
+        # Small margin so trailing silence that triggered endpointing is not
+        # cut off; audio_processed already includes it, but the ring may lag.
+        margin_sec = 0.5
+        nbytes = int((utt_len + margin_sec) * audio.RATE * 2)
+        nbytes = min(nbytes, len(ring))
+        if nbytes <= 0:
+            return b""
+        return bytes(ring[len(ring) - nbytes:])
+
     async def _finalize_incoming(
         self,
         card_id: str,
@@ -436,6 +494,7 @@ class Controller:
         gen: int,
         t_capture_start: float,
         t_asr_final: float,
+        utterance_audio: bytes,
     ) -> None:
         """Translate a final utterance and update its card, dropping if stale."""
         src = self.cfg.incoming.source_language[:2]
@@ -464,6 +523,55 @@ class Controller:
         self.overlay_send(
             {"cmd": "card", "id": card_id, "direction": "in",
              "source": final, "target": translated, "state": "incoming"}
+        )
+        # Two-tier refinement: re-transcribe the utterance with the offline
+        # model and replace the card in place if it yields better text.
+        if self.cfg.asr.offline_enabled and utterance_audio:
+            await self._refine_card(card_id, final, translated, gen, src, tgt,
+                                    utterance_audio)
+
+    async def _refine_card(
+        self,
+        card_id: str,
+        final: str,
+        translated: str,
+        gen: int,
+        src: str,
+        tgt: str,
+        utterance_audio: bytes,
+    ) -> None:
+        """Re-transcribe with the offline model and update the card in place."""
+        try:
+            refined = await self.asr.transcribe_offline(
+                utterance_audio, self.cfg.incoming.source_language
+            )
+        except Exception as exc:
+            log.error("offline refinement failed: %s", exc)
+            return
+        cleaned = refined.strip()
+        if not cleaned or gen != self._incoming_gen:
+            return
+        # Skip when the offline model agrees with the streaming draft — there is
+        # nothing to change.
+        if cleaned == final:
+            return
+        try:
+            refined_translated = await self.nmt.translate(cleaned, src, tgt)
+        except Exception as exc:
+            log.error("offline refinement translation failed: %s", exc)
+            refined_translated = translated
+        logging.log_event({
+            "kind": "incoming_refine",
+            "direction": f"{src}→{tgt}",
+            "card": card_id,
+            "source": cleaned,
+            "target": refined_translated,
+        })
+        log.info("incoming refined (%s→%s): %r → %r", src, tgt, cleaned,
+                 refined_translated)
+        self.overlay_send(
+            {"cmd": "card", "id": card_id, "direction": "in",
+             "source": cleaned, "target": refined_translated, "state": "incoming"}
         )
 
     # -- control server ----------------------------------------------------
@@ -643,6 +751,15 @@ class Controller:
             self.cfg.keep_awake = bool(settings["keep_awake"])
             self._apply_keep_awake()
             log.info("keep-awake set to %s", self.cfg.keep_awake)
+        if "two_tier" in settings:
+            want = bool(settings["two_tier"])
+            if want != self.cfg.asr.offline_enabled:
+                self.cfg.asr.offline_enabled = want
+                if want:
+                    await self.asr.start_offline()
+                else:
+                    await self.asr.stop_offline()
+                log.info("two-tier accuracy set to %s", want)
 
     async def _restart_incoming(self) -> None:
         """Reconnect the incoming stream so stream-level settings take effect."""
@@ -723,6 +840,7 @@ class Controller:
             "preamp_db": self.cfg.preamp_db,
             "chunk_ms": self.cfg.chunk_ms,
             "keep_awake": self.cfg.keep_awake,
+            "two_tier": self.cfg.asr.offline_enabled,
         }
 
     # -- lifecycle ---------------------------------------------------------
@@ -731,6 +849,8 @@ class Controller:
         self.loop = asyncio.get_running_loop()
         audio.prune_debug_dir_startup(self.cfg)
         await self.asr.start()
+        if self.cfg.asr.offline_enabled:
+            await self.asr.start_offline()
         await self.start_overlay()
         self.start_control_server()
         self._apply_keep_awake()

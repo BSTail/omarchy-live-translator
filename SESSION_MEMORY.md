@@ -133,12 +133,19 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   streaming is impossible in this runtime (NeMo buffered chunking = separate
   Python/torch stack). Remaining: measure end-to-end draft→final latency + text
   stability on a real utterance stream before implementing.
-- **Two-tier incoming translation** (user idea, under discussion): fast streaming
-  model renders short (2–3 s) provisional chunks in a lighter "draft" style;
-  a more accurate offline model (Parakeet TDT) re-translates longer
-  utterance-level chunks and replaces the draft text in place (no scrolling).
-  NOTE: current drafts show source-only (empty target) — translated provisional
-  drafts not yet implemented; re-run NMT when Parakeet revises the source.
+- **Two-tier incoming translation** (user idea): IMPLEMENTED + validated. `ASRConfig`
+  gains `offline_model/offline_port/offline_enabled`; `NemoASR.start_offline()`
+  runs a 2nd `serve` (Parakeet) on 8081; incoming captures a ~20s raw PCM ring
+  and, on each `.completed`, uses the server's `audio_processed` delta to bound
+  the utterance and POSTs it to Parakeet via `transcribe_offline()`
+  (multipart); a background task re-transcribes + re-translates and updates the
+  card IN PLACE (same id) if text differs. Generation counter drops stale
+  refinements. `_snapshot_utterance_audio` skips sub-300ms utterances (empty
+  WAV 500s Parakeet). Validated live: refine works, Parakeet more complete than
+  Nemotron draft. Parakeet still misrecognizes ("caballete"→"caballo"/"horse").
+  Off by default (`offline_enabled=false`); needs a panel toggle + control
+  `set` action already wired (`two_tier`). Service restarted clean; verified
+  toggle on/off (Parakeet process starts/stops correctly).
 - **Auto-detect input level (gating)** — user idea, agreed in principle: gate
   incoming translation on a minimum monitor signal level. Panel slider, default
   low. DISABLED while an active call is happening (user confirmed). Gating must

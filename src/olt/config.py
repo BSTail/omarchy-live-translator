@@ -23,6 +23,11 @@ class ASRConfig:
     preload_stdcxx: bool = True
     port: int = 8080
     host: str = "127.0.0.1"
+    # Two-tier accuracy: a second, offline-only model (Parakeet TDT) that
+    # re-transcribes each final utterance for a more accurate replacement.
+    offline_model: str = "parakeet-tdt"
+    offline_port: int = 8081
+    offline_enabled: bool = False
 
 
 @dataclass
@@ -159,6 +164,9 @@ def load(path: str | None = None) -> Config:
     cfg.asr.preload_stdcxx = asr.get("preload_stdcxx", cfg.asr.preload_stdcxx)
     cfg.asr.port = asr.get("port", cfg.asr.port)
     cfg.asr.host = asr.get("host", cfg.asr.host)
+    cfg.asr.offline_model = asr.get("offline_model", cfg.asr.offline_model)
+    cfg.asr.offline_port = asr.get("offline_port", cfg.asr.offline_port)
+    cfg.asr.offline_enabled = asr.get("offline_enabled", cfg.asr.offline_enabled)
 
     tts = section("tts")
     cfg.tts.engine = tts.get("engine", cfg.tts.engine)

@@ -13,6 +13,9 @@ import json
 import os
 import struct
 import time
+import urllib.request
+import wave
+from io import BytesIO
 from pathlib import Path
 
 from . import logging
@@ -27,6 +30,9 @@ class NemoASR:
         self.cfg = asr_cfg
         self.proc: asyncio.subprocess.Process | None = None
         self._ready = asyncio.Event()
+        # Second (offline, higher-accuracy) model served on a distinct port.
+        self.offline_proc: asyncio.subprocess.Process | None = None
+        self._offline_ready = asyncio.Event()
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -122,6 +128,118 @@ class NemoASR:
                 self.proc.kill()
                 await self.proc.wait()
             log.info("stopped nemo-speech serve")
+        await self.stop_offline()
+
+    # -- offline (two-tier) server -----------------------------------------
+
+    async def start_offline(self) -> None:
+        """Start a second serve process with the offline accuracy model.
+
+        Parakeet TDT cannot run `streaming_recognize` in this runtime (the
+        runner throws "offline-only"), so it is served as a plain HTTP
+        transcription endpoint on its own port and fed whole final utterances.
+        """
+        if self.offline_proc is not None and self.offline_proc.returncode is None:
+            return
+        env = os.environ.copy()
+        if self.cfg.preload_stdcxx:
+            env["LD_PRELOAD"] = "/usr/lib/libstdc++.so.6"
+        self._offline_ready.clear()
+        self.offline_proc = await asyncio.create_subprocess_exec(
+            self.paths.nemo_speech,
+            "serve",
+            "--asr-model",
+            self.cfg.offline_model,
+            "--device",
+            self.cfg.device,
+            "--host",
+            self.cfg.host,
+            "--port",
+            str(self.cfg.offline_port),
+            "--no-ui",
+            "--no-warmup",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        asyncio.create_task(self._watch_offline_stderr())
+        log.info("started offline nemo-speech serve (pid %s, model %s)",
+                 self.offline_proc.pid, self.cfg.offline_model)
+        await self._wait_offline_ready()
+
+    async def _watch_offline_stderr(self) -> None:
+        assert self.offline_proc is not None and self.offline_proc.stderr is not None
+        while True:
+            line = await self.offline_proc.stderr.readline()
+            if not line:
+                break
+            log.info("nemo-offline: %s", line.decode(errors="replace").rstrip())
+
+    async def _wait_offline_ready(self, timeout: float = 60.0) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.offline_proc is None or self.offline_proc.returncode is not None:
+                raise RuntimeError(
+                    "offline nemo-speech exited early with code "
+                    f"{self.offline_proc.returncode if self.offline_proc else '?'}"
+                )
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(self.cfg.host, self.cfg.offline_port),
+                    timeout=1.0,
+                )
+            except (OSError, asyncio.TimeoutError):
+                await asyncio.sleep(0.5)
+                continue
+            writer.close()
+            self._offline_ready.set()
+            log.info("offline nemo-speech is ready on %s:%s",
+                     self.cfg.host, self.cfg.offline_port)
+            return
+        raise TimeoutError("offline nemo-speech did not become ready in time")
+
+    async def stop_offline(self) -> None:
+        if self.offline_proc is not None and self.offline_proc.returncode is None:
+            self.offline_proc.terminate()
+            try:
+                await asyncio.wait_for(self.offline_proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                self.offline_proc.kill()
+                await self.offline_proc.wait()
+            log.info("stopped offline nemo-speech serve")
+
+    async def transcribe_offline(self, pcm16: bytes, language: str) -> str:
+        """Transcribe a whole utterance via the offline model's HTTP endpoint.
+
+        Returns the transcript text, or "" on any failure (the streaming draft
+        remains authoritative in that case).
+        """
+        if self.offline_proc is None or self.offline_proc.returncode is not None:
+            raise RuntimeError("offline nemo-speech is not running")
+        wav = _pcm16_to_wav(pcm16, 16000)
+        boundary = "----oltboundary"
+        body = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="file"; filename="u.wav"\r\n'
+            "Content-Type: audio/wav\r\n\r\n"
+        ).encode() + wav + (
+            f"\r\n--{boundary}\r\n"
+            'Content-Disposition: form-data; name="response_format"\r\n\r\n'
+            "text\r\n"
+            f"--{boundary}--\r\n"
+        ).encode()
+        req = urllib.request.Request(
+            f"http://{self.cfg.host}:{self.cfg.offline_port}/v1/audio/transcriptions",
+            data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            method="POST",
+        )
+        try:
+            resp = await asyncio.to_thread(urllib.request.urlopen, req, timeout=60)
+        except Exception as exc:
+            log.error("offline transcription failed: %s", exc)
+            raise
+        return resp.read().decode().strip()
 
     # -- WebSocket ---------------------------------------------------------
 
@@ -258,3 +376,13 @@ async def _ws_handshake(
     status_line = buf.split(b"\r\n")[0].decode(errors="replace")
     if "101" not in status_line:
         raise RuntimeError(f"WebSocket handshake failed: {status_line}")
+
+
+def _pcm16_to_wav(pcm16: bytes, sample_rate: int) -> bytes:
+    buf = BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(pcm16)
+    return buf.getvalue()

@@ -246,6 +246,24 @@ The controller process and overlay state machine are specified in
         buffered chunking would require a separate Python/torch stack.
       - Remaining before implementation: measure end-to-end draft→final latency
         and text stability on a real utterance stream (not just file timing).
+- [x] **Two-tier incoming translation implemented** (2026-09-14):
+      - `ASRConfig.offline_model/offline_port/offline_enabled` + a second
+        `nemo-speech serve` process managed by `NemoASR.start_offline()`.
+      - Incoming capture keeps a ~20 s ring of raw PCM16; on each `.completed`
+        the server's `audio_processed` (stream-global seconds) delta bounds the
+        utterance, and that audio is POSTed to Parakeet via
+        `NemoASR.transcribe_offline()` (multipart `/v1/audio/transcriptions`).
+      - Refinement runs in a background task: if Parakeet returns different text,
+        NMT re-translates it and the card is updated IN PLACE (same card id), so
+        no scrolling duplicates. Generation counter drops stale refinements on
+        clear/pause/restart. Streams and rapid toggles: `_snapshot_utterance_audio`
+        skips sub-300ms utterances (a near-empty WAV makes Parakeet return 500).
+      - Validated live (two real clip plays): cards refine in place; Parakeet
+        transcripts are more complete than the streaming Nemotron draft and the
+        replacement text re-translates correctly. Still off by default; needs a
+        panel toggle. NOTE: the refine source for clip 2 included a Parakeet
+        misrecognition ("caballete"→"caballo"/"horse") — Parakeet is better but
+        not perfect; the two-tier path is plumbing, accuracy is model-bound.
 - [ ] **Clipboard translation** (planned): a button + hotkey that translates the
       current clipboard text in both directions (auto-detect en/es), ready to
       paste. Direction follows the configured language pair.
@@ -262,13 +280,11 @@ The controller process and overlay state machine are specified in
       gate ASR vs. mute overlay vs. both. Gating must not starve ASR of trailing
       silence (or endpointing never completes); call detection needs explicit
       design (`media.role=Communication` is a hint, plus a manual override).
-- [ ] **Two-tier incoming translation** (user idea, under discussion): a fast
-      streaming model renders short (2–3 s) provisional chunks in a lighter
-      "draft" style, while a more accurate offline model (Parakeet TDT 0.6B v3)
-      re-translates longer utterance-level chunks and replaces the draft text in
-      place. Note: current drafts show source-only (empty target) — translated
-      provisional drafts are not yet implemented. Re-run NMT when Parakeet
-      revises the source transcript.
+- [ ] **Two-tier incoming translation** (user idea): DONE — see the [x] item
+      below (implemented + validated). Remaining: add the panel toggle
+      ("Two-tier accuracy"). NOTE: current drafts show source-only (empty
+      target) — translated provisional drafts are not yet implemented; re-run
+      NMT is done when Parakeet revises the source.
 - [x] **Evaluate a higher-accuracy ASR model** — `parakeet-tdt` (0.6B v3) pulled
       and timed against the two calibration clips (Vulkan, q8_0). Corrected
       jiwer WER: parakeet 76.3%/47.0% vs nemotron 93.2%/60.6% (see above); 15 s
