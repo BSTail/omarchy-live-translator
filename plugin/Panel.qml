@@ -34,6 +34,7 @@ Panel {
   property bool activationEnabled: false
   property string activationClass: ""
   property string activationTitle: ""
+  property bool debugCapture: false
 
   property bool pending: false
 
@@ -130,6 +131,7 @@ Panel {
             root.activationClass = d.activation.app_class || ""
             root.activationTitle = d.activation.app_title || ""
           }
+          root.debugCapture = !!d.debug_capture
         } catch (e) {
           root.serviceRunning = false
         }
@@ -495,6 +497,20 @@ Panel {
           // ---- diagnostics ------------------------------------------------
           PanelSectionHeader { text: "DIAGNOSTICS" }
 
+          Toggle {
+            width: parent.width
+            label: "Record audio captures"
+            description: "Save incoming/outgoing audio to WAV files for waveform analysis (testing only)"
+            checked: root.debugCapture
+            foreground: root.bar.foreground
+            accent: Color.accent
+            fontFamily: root.bar.fontFamily
+            onClicked: {
+              root.debugCapture = !root.debugCapture
+              root.applySettings({ "debug_capture": root.debugCapture })
+            }
+          }
+
           Button {
             width: parent.width
             text: "Open diagnostics"
@@ -528,7 +544,7 @@ Panel {
 
           Text {
             width: parent.width
-            text: "Deletes all log files, translation history, and clears the overlay."
+            text: "Deletes all log files, translation history, debug captures, and clears the overlay."
             color: Qt.darker(root.bar.foreground, 1.5)
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.caption

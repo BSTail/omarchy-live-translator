@@ -100,6 +100,12 @@ class Config:
     control_port: int = 8670
     log_dir: str = str(Path.home() / ".local" / "state" / "omarchy-live-translator")
     log_level: str = "INFO"
+    # Testing aid: when enabled, every capture is dumped to a timestamped WAV
+    # file in debug_dir so waveforms can be inspected (level, bandwidth,
+    # silence). debug_keep bounds how many capture files are retained.
+    debug_capture: bool = False
+    debug_dir: str = str(Path.home() / ".local" / "state" / "omarchy-live-translator" / "debug")
+    debug_keep: int = 20
 
 
 def _expand(path: str) -> str:
@@ -180,5 +186,8 @@ def load(path: str | None = None) -> Config:
     cfg.control_port = data.get("control_port", cfg.control_port)
     cfg.log_dir = _expand(data.get("log_dir", cfg.log_dir))
     cfg.log_level = data.get("log_level", cfg.log_level)
+    cfg.debug_capture = bool(data.get("debug_capture", cfg.debug_capture))
+    cfg.debug_dir = _expand(data.get("debug_dir", cfg.debug_dir))
+    cfg.debug_keep = int(data.get("debug_keep", cfg.debug_keep))
 
     return cfg

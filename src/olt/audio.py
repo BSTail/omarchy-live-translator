@@ -5,11 +5,19 @@ Python audio dependency. We spawn it and read raw PCM16 from stdout.
 
 - outgoing: capture the default microphone while push-to-talk is held.
 - incoming: capture a monitor source (the call app's output).
+
+Debug capture (testing aid): when enabled, each capture session is written to
+a timestamped WAV file under `debug_dir`. Files are closed on stop and pruned
+to `debug_keep` newest files. The `wave` module only supports read/write modes,
+so we never append; every session gets its own file.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
+import wave
+from pathlib import Path
 
 from . import logging
 from .config import Config
@@ -21,10 +29,33 @@ FORMAT = "s16le"
 CHANNELS = 1
 
 
+def _prune_debug_dir(debug_dir: Path, keep: int) -> None:
+    """Keep only the newest `keep` capture files in the debug directory."""
+    if keep <= 0:
+        return
+    try:
+        files = sorted(
+            (p for p in debug_dir.glob("*.wav") if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return
+    for stale in files[keep:]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+
+
 class Capture:
-    def __init__(self, device: str):
+    def __init__(self, device: str, debug_dir: Path | None = None, tag: str = "capture"):
         self.device = device
+        self.debug_dir = debug_dir
+        self.tag = tag
         self.proc: asyncio.subprocess.Process | None = None
+        self._wav: wave.Wave_write | None = None
+        self._wav_path: Path | None = None
 
     async def start(self) -> None:
         cmd = [
@@ -44,6 +75,15 @@ class Capture:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
+        if self.debug_dir is not None:
+            self.debug_dir.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            self._wav_path = self.debug_dir / f"{self.tag}-{stamp}.wav"
+            self._wav = wave.open(str(self._wav_path), "wb")
+            self._wav.setnchannels(CHANNELS)
+            self._wav.setsampwidth(2)
+            self._wav.setframerate(RATE)
+            log.info("capture dump enabled: %s", self._wav_path)
         log.info("capture started on %s", self.device)
 
     async def stop(self) -> None:
@@ -54,21 +94,34 @@ class Capture:
             except asyncio.TimeoutError:
                 self.proc.kill()
                 await self.proc.wait()
-            log.info("capture stopped on %s", self.device)
+        if self._wav is not None:
+            self._wav.close()
+            self._wav = None
+        log.info("capture stopped on %s", self.device)
 
     async def read_chunk(self, ms: int = 160) -> bytes:
         """Read `ms` milliseconds of PCM16 (mono 16 kHz)."""
         assert self.proc is not None and self.proc.stdout is not None
         nbytes = int(RATE * 2 * ms / 1000)
         try:
-            return await self.proc.stdout.readexactly(nbytes)
+            chunk = await self.proc.stdout.readexactly(nbytes)
         except asyncio.IncompleteReadError as exc:
-            return exc.partial
+            chunk = exc.partial
+        if self._wav is not None and chunk:
+            self._wav.writeframes(chunk)
+        return chunk
 
 
 def mic_capture(cfg: Config) -> Capture:
-    return Capture("@DEFAULT_SOURCE@")
+    debug_dir = Path(cfg.debug_dir) if cfg.debug_capture else None
+    return Capture("@DEFAULT_SOURCE@", debug_dir, tag="out")
 
 
 def monitor_capture(cfg: Config) -> Capture:
-    return Capture(cfg.incoming.source_device)
+    debug_dir = Path(cfg.debug_dir) if cfg.debug_capture else None
+    return Capture(cfg.incoming.source_device, debug_dir, tag="in")
+
+
+def prune_debug_dir(cfg: Config) -> None:
+    if cfg.debug_capture:
+        _prune_debug_dir(Path(cfg.debug_dir), cfg.debug_keep)

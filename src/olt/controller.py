@@ -121,7 +121,7 @@ class Controller:
             {"cmd": "card", "id": card_id, "direction": "out",
              "source": "", "target": "", "state": "draft"}
         )
-        cap = audio.Capture("@DEFAULT_SOURCE@")
+        cap = audio.mic_capture(self.cfg)
         stream = await self.asr.connect_stream(
             source_lang, speech_contexts=self._speech_contexts()
         )
@@ -347,7 +347,7 @@ class Controller:
         if not self._activation_ok():
             await asyncio.sleep(0.5)
             return
-        cap = audio.Capture(self.cfg.incoming.source_device)
+        cap = audio.monitor_capture(self.cfg)
         eou_ms = (
             self.cfg.incoming.multimedia_endpointing_ms
             if self.cfg.incoming.multimedia
@@ -376,6 +376,8 @@ class Controller:
                     # The socket can close when incoming is paused for TTS
                     # playback; the pump is done, not an error.
                     pass
+                except Exception as exc:
+                    log.error("incoming pump error: %s", exc)
 
             pump_task = asyncio.create_task(pump())
             async for ev in stream.events():
@@ -431,6 +433,7 @@ class Controller:
             await stream.close()
             if self._incoming_card_id == card_id:
                 self._incoming_card_id = None
+            audio.prune_debug_dir(self.cfg)
 
     # -- control server ----------------------------------------------------
 
@@ -509,14 +512,15 @@ class Controller:
                 self.incoming_task = asyncio.create_task(self.incoming())
                 log.info("incoming resumed")
         elif action == "set":
-            self._apply_settings(msg.get("settings", {}))
+            await self._apply_settings(msg.get("settings", {}))
         else:
             log.warning("unknown action: %s", action)
 
-    def _apply_settings(self, settings: dict) -> None:
+    async def _apply_settings(self, settings: dict) -> None:
         if "incoming_enabled" in settings:
             want = bool(settings["incoming_enabled"])
             have = self.incoming_task is not None and not self.incoming_task.done()
+            self.cfg.incoming.enabled = want
             if want and not have:
                 self.incoming_task = asyncio.create_task(self.incoming())
                 log.info("incoming enabled via settings")
@@ -547,13 +551,13 @@ class Controller:
             elif direction == "en-es":
                 self.cfg.incoming.source_language = "en-US"
                 self.cfg.incoming.target = "es"
-            self._restart_incoming()
+            await self._restart_incoming()
             log.info("incoming direction set to %s", direction)
         if "multimedia" in settings:
             self.cfg.incoming.multimedia = bool(settings["multimedia"])
             # The EOU window is baked into the live ASR stream at connect
             # time, so a toggle needs a fresh stream to take effect.
-            self._restart_incoming()
+            await self._restart_incoming()
             log.info("multimedia mode set to %s", self.cfg.incoming.multimedia)
         if "history" in settings:
             self.cfg.overlay.history = bool(settings["history"])
@@ -568,7 +572,7 @@ class Controller:
                     self.cfg.glossary.phrases = list(gl["phrases"])
                 if "boost" in gl:
                     self.cfg.glossary.boost = float(gl["boost"])
-            self._restart_incoming()
+            await self._restart_incoming()
             log.info("glossary updated: enabled=%s phrases=%d",
                      self.cfg.glossary.enabled, len(self.cfg.glossary.phrases))
         if "activation" in settings:
@@ -589,35 +593,45 @@ class Controller:
             if dest in ("virtual_mic", "speakers"):
                 self.cfg.outgoing.output_destination = dest
                 log.info("output destination set to %s", dest)
+        if "debug_capture" in settings:
+            self.cfg.debug_capture = bool(settings["debug_capture"])
+            log.info("debug capture set to %s", self.cfg.debug_capture)
 
-    def _restart_incoming(self) -> None:
+    async def _restart_incoming(self) -> None:
         """Reconnect the incoming stream so stream-level settings take effect."""
         if self.incoming_task is not None and not self.incoming_task.done():
             self.incoming_task.cancel()
+            try:
+                await self.incoming_task
+            except asyncio.CancelledError:
+                pass
         if self.cfg.incoming.enabled:
             self.incoming_task = asyncio.create_task(self.incoming())
 
     def clear_logs(self) -> None:
         """Delete all log files and translation history for this plugin.
 
-        Removes olt.log*, events.jsonl, and clears the on-screen overlay.
-        The controller keeps running; new events start fresh.
+        Removes olt.log*, events.jsonl, debug capture WAVs, and clears the
+        on-screen overlay. The controller keeps running; new events start fresh.
         """
         log_dir = Path(self.cfg.log_dir)
         removed = 0
         try:
-            for pattern in ("olt.log", "olt.log.*", "events.jsonl"):
-                for path in log_dir.glob(pattern):
-                    try:
-                        path.unlink()
-                        removed += 1
-                    except OSError as exc:
-                        log.warning("could not remove %s: %s", path, exc)
+            patterns = ("olt.log", "olt.log.*", "events.jsonl")
+            paths = [p for pat in patterns for p in log_dir.glob(pat)]
+            if self.cfg.debug_capture:
+                paths += [p for p in Path(self.cfg.debug_dir).glob("*.wav")]
+            for path in paths:
+                try:
+                    path.unlink()
+                    removed += 1
+                except OSError as exc:
+                    log.warning("could not remove %s: %s", path, exc)
         except Exception as exc:
             log.error("clear_logs failed: %s", exc)
         self.overlay_send({"cmd": "clear_all"})
         self._incoming_card_id = None
-        log.info("cleared %d log/history file(s) in %s", removed, log_dir)
+        log.info("cleared %d log/history file(s)", removed)
 
     def status(self) -> dict:
         incoming_running = self.incoming_task is not None and not self.incoming_task.done()
@@ -641,6 +655,9 @@ class Controller:
                 "app_class": self.cfg.activation.app_class,
                 "app_title": self.cfg.activation.app_title,
             },
+            "debug_capture": self.cfg.debug_capture,
+            "debug_dir": self.cfg.debug_dir,
+            "debug_keep": self.cfg.debug_keep,
         }
 
     # -- lifecycle ---------------------------------------------------------
