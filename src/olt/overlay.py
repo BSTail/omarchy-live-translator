@@ -167,6 +167,7 @@ class OverlayApp:
         self.window.set_child(self.border)
 
         self.cards: dict[str, Gtk.Box] = {}
+        self._shown: list[str] = []
         self.history = True
 
         self.window.connect("map", lambda *_: self._relayout())
@@ -190,22 +191,38 @@ class OverlayApp:
             self.scroll.set_max_content_height(max_h)
             # Newest is prepended at the top; keep it visible.
             adj = self.scroll.get_vadjustment()
-            adj.set_value(0)
+            GLib.idle_add(adj.set_value, 0)
         except Exception:
             pass
 
     def _apply_history(self) -> None:
-        """Show only the newest card, or all cards (scrollable history)."""
+        """Show only the newest card, or all cards (scrollable history).
+
+        Entries are physically added/removed from the entries box rather than
+        hidden in place: hiding a child inside a GtkScrolledWindow's viewport
+        triggers `gtk_widget_is_ancestor` assertions, so we detach instead.
+        """
         if self.history:
             self.scroll.set_visible(True)
+            # Re-attach every card in order (newest first).
+            for card_id in reversed(self._shown):
+                item = self.cards.get(card_id)
+                if item is not None and item[0].get_parent() is None:
+                    self.entries.prepend(item[0])
+            self._shown = list(self.cards.keys())
+            self._relayout()
             return
-        # Newest-only: hide everything except the most recent entry.
-        newest = None
-        for entry in self.cards.values():
-            if newest is None:
-                newest = entry
-        for entry in self.cards.values():
-            entry.set_visible(entry is newest)
+        # Newest-only: keep just the most recent entry attached.
+        newest_id = self._shown[0] if self._shown else None
+        for card_id in list(self._shown):
+            item = self.cards.get(card_id)
+            if item is None:
+                continue
+            if card_id == newest_id:
+                continue
+            if item[0].get_parent() is not None:
+                self.entries.remove(item[0])
+        self._shown = [newest_id] if newest_id else []
         self.scroll.set_visible(False)
         self._relayout()
 
@@ -224,22 +241,46 @@ class OverlayApp:
         return label
 
     def card(self, card_id: str, direction: str, source: str, target: str, state: str):
-        if card_id in self.cards:
-            self.entries.remove(self.cards[card_id])
         state_class = STATE_CLASS.get(state, "olt-draft")
+
+        if card_id in self.cards:
+            # Update the existing entry in place. Removing and re-adding a
+            # child inside the ScrolledWindow viewport triggers
+            # `gtk_widget_is_ancestor` assertions during reflow, so we only
+            # ever mutate label text, never reparent.
+            entry, top_label, bottom_label = self.cards[card_id]
+            if direction == "out":
+                top_label.set_text(source)
+                bottom_label.set_text(target)
+                top_label.set_css_classes(["olt-src"])
+                bottom_label.set_css_classes([state_class])
+            else:
+                top_label.set_text(target)
+                bottom_label.set_text(source)
+                top_label.set_css_classes([state_class])
+                bottom_label.set_css_classes(["olt-src"])
+            self._shown.remove(card_id)
+            self._shown.insert(0, card_id)
+            self._update_visibility()
+            self._relayout()
+            return
 
         entry = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         entry.add_css_class("olt-entry")
 
         if direction == "out":
-            entry.append(self._label(source, "olt-src"))
-            entry.append(self._label(target, state_class))
+            top_label = self._label(source, "olt-src")
+            bottom_label = self._label(target, state_class)
         else:
-            entry.append(self._label(target, state_class))
-            entry.append(self._label(source, "olt-src"))
+            top_label = self._label(target, state_class)
+            bottom_label = self._label(source, "olt-src")
+        entry.append(top_label)
+        entry.append(bottom_label)
 
-        self.entries.prepend(entry)
-        self.cards[card_id] = entry
+        if self.history:
+            self.entries.prepend(entry)
+        self.cards[card_id] = (entry, top_label, bottom_label)
+        self._shown.insert(0, card_id)
         self._update_visibility()
         if not self.history:
             self._apply_history()
@@ -250,22 +291,26 @@ class OverlayApp:
         pass
 
     def clear(self, card_id: str):
-        entry = self.cards.pop(card_id, None)
-        if entry is not None:
-            self.entries.remove(entry)
+        item = self.cards.pop(card_id, None)
+        if item is not None:
+            entry = item[0]
+            if entry.get_parent() is not None:
+                self.entries.remove(entry)
+        if card_id in self._shown:
+            self._shown.remove(card_id)
         self._update_visibility()
 
     def clear_all(self):
-        for entry in self.cards.values():
-            self.entries.remove(entry)
+        for item in self.cards.values():
+            entry = item[0]
+            if entry.get_parent() is not None:
+                self.entries.remove(entry)
         self.cards.clear()
+        self._shown = []
         self._update_visibility()
 
     def set_history(self, enabled: bool):
         self.history = bool(enabled)
-        if self.history:
-            for entry in self.cards.values():
-                entry.set_visible(True)
         self._apply_history()
 
     def hint(self, text: str):

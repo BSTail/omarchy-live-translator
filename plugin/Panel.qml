@@ -99,6 +99,11 @@ Panel {
     root.bar.run("omarchy-launch-floating-terminal-with-presentation olt-ctl diagnostics")
   }
 
+  function clearLogs() {
+    clearProc.running = false
+    clearProc.running = true
+  }
+
   Process {
     id: statusProbe
     command: ["curl", "-fsS", "--max-time", "3", "http://127.0.0.1:8670/status"]
@@ -149,6 +154,12 @@ Panel {
     property string action: ""
     command: ["systemctl", "--user", svcProc.action,
               "omarchy-live-translator.service", "libretranslate-live.service"]
+    onExited: Qt.callLater(root.refreshStatus)
+  }
+
+  Process {
+    id: clearProc
+    command: ["olt-ctl", "clear_logs"]
     onExited: Qt.callLater(root.refreshStatus)
   }
 
@@ -498,6 +509,26 @@ Panel {
           Text {
             width: parent.width
             text: "Opens a terminal with service state, controller status, recent logs, and engine info."
+            color: Qt.darker(root.bar.foreground, 1.5)
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
+          Button {
+            width: parent.width
+            text: "Clear logs & history"
+            iconText: "\uf1f8"
+            bordered: true
+            foreground: Color.urgent
+            accent: Color.urgent
+            fontFamily: root.bar.fontFamily
+            onClicked: root.clearLogs()
+          }
+
+          Text {
+            width: parent.width
+            text: "Deletes all log files, translation history, and clears the overlay."
             color: Qt.darker(root.bar.foreground, 1.5)
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.caption

@@ -16,6 +16,7 @@ import subprocess
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from . import audio, engines, logging, nemo
 from .config import Config
@@ -496,6 +497,8 @@ class Controller:
         elif action == "clear":
             self.overlay_send({"cmd": "clear_all"})
             self._incoming_card_id = None
+        elif action == "clear_logs":
+            self.clear_logs()
         elif action == "pause_incoming":
             if self.incoming_task and not self.incoming_task.done():
                 self.incoming_task.cancel()
@@ -581,6 +584,28 @@ class Controller:
             if dest in ("virtual_mic", "speakers"):
                 self.cfg.outgoing.output_destination = dest
                 log.info("output destination set to %s", dest)
+
+    def clear_logs(self) -> None:
+        """Delete all log files and translation history for this plugin.
+
+        Removes olt.log*, events.jsonl, and clears the on-screen overlay.
+        The controller keeps running; new events start fresh.
+        """
+        log_dir = Path(self.cfg.log_dir)
+        removed = 0
+        try:
+            for pattern in ("olt.log", "olt.log.*", "events.jsonl"):
+                for path in log_dir.glob(pattern):
+                    try:
+                        path.unlink()
+                        removed += 1
+                    except OSError as exc:
+                        log.warning("could not remove %s: %s", path, exc)
+        except Exception as exc:
+            log.error("clear_logs failed: %s", exc)
+        self.overlay_send({"cmd": "clear_all"})
+        self._incoming_card_id = None
+        log.info("cleared %d log/history file(s) in %s", removed, log_dir)
 
     def status(self) -> dict:
         incoming_running = self.incoming_task is not None and not self.incoming_task.done()
