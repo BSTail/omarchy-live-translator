@@ -276,7 +276,7 @@ Panel {
               }
             }
 
-            Button {
+            ThemedButton {
               id: headerButton
               anchors.right: parent.right
               anchors.rightMargin: Style.space(10)
@@ -286,10 +286,10 @@ Panel {
               bordered: true
               foreground: root.bar.foreground
               accent: root.serviceRunning ? root.themeRed : root.themeAccent
+              borderColor: root.serviceRunning ? root.themeRed : root.themeAccent
               fontFamily: root.bar.fontFamily
               onClicked: root.toggleService()
             }
-          }
 
           PanelSeparator {}
 
@@ -301,7 +301,7 @@ Panel {
             width: parent.width
             foreground: root.bar.foreground
             background: Color.popups.background
-            accent: Color.accent
+            accent: root.themeAccent
             fontFamily: root.bar.fontFamily
             value: root.direction
             options: [
@@ -363,7 +363,7 @@ Panel {
             width: parent.width
             foreground: root.bar.foreground
             background: Color.popups.background
-            accent: Color.accent
+            accent: root.themeCyan
             fontFamily: root.bar.fontFamily
             value: root.incomingDirection
             options: [
