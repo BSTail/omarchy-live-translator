@@ -240,7 +240,7 @@ async def _ws_handshake(
 ) -> None:
     key = base64.b64encode(os.urandom(16)).decode()
     req = (
-        f"GET /v1/audio/transcriptions/realtime HTTP/1.1\r\n"
+        f"GET /v1/realtime HTTP/1.1\r\n"
         f"Host: {host}:{port}\r\n"
         "Upgrade: websocket\r\n"
         "Connection: Upgrade\r\n"
@@ -249,12 +249,12 @@ async def _ws_handshake(
     )
     writer.write(req.encode())
     await writer.drain()
-    buf = b""
-    while b"\r\n\r\n" not in buf:
-        chunk = await reader.read(4096)
-        if not chunk:
-            raise RuntimeError("WebSocket handshake failed: connection closed")
-        buf += chunk
+    # Read only up to the end of the HTTP headers. Using read(4096) here would
+    # over-read and swallow the first WebSocket frame's bytes (the server sends
+    # `session.created` immediately after the 101), desyncing the frame parser
+    # and producing "malformed frame" warnings. readuntil() stops exactly at the
+    # header terminator, leaving any frame bytes in the stream buffer.
+    buf = await reader.readuntil(b"\r\n\r\n")
     status_line = buf.split(b"\r\n")[0].decode(errors="replace")
     if "101" not in status_line:
         raise RuntimeError(f"WebSocket handshake failed: {status_line}")
