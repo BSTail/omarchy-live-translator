@@ -364,6 +364,7 @@ class Controller:
         partial = ""
         t_first_delta: float | None = None
         t_asr_final: float | None = None
+        t_capture_start = time.monotonic()
         try:
             async def pump():
                 try:
@@ -408,8 +409,8 @@ class Controller:
                                  self.cfg.incoming.source_language[:2],
                                  self.cfg.incoming.target, final, translated)
                         asr_ms = (
-                            round((t_asr_final - t_first_delta) * 1000, 1)
-                            if t_first_delta is not None else None
+                            round((t_asr_final - t_capture_start) * 1000, 1)
+                            if t_asr_final is not None else None
                         )
                         logging.log_event({
                             "kind": "incoming",

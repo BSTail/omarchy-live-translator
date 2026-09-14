@@ -351,7 +351,7 @@ Panel {
           Toggle {
             width: parent.width
             label: "Multimedia mode"
-            description: "For videos/voice messages: segments long continuous speech into cards"
+            description: "For videos/voice messages: longer end-of-utterance window so continuous speech is segmented into cards"
             checked: root.multimedia
             foreground: root.bar.foreground
             accent: Color.accent
