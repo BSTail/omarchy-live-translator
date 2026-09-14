@@ -44,6 +44,11 @@ class NemoASR:
             str(self.cfg.port),
             "--no-ui",
             "--no-warmup",
+            # Incoming translation listens to a continuous monitor stream and
+            # never sends input_audio_buffer.commit, so end-of-utterance
+            # detection must be on for the server to emit `.completed` finals
+            # on trailing silence (otherwise no final ever arrives).
+            "--asr.endpointing.enable=true",
         ]
         return cmd
 

@@ -33,6 +33,7 @@ class Controller:
         self.outgoing_task: asyncio.Task | None = None
         self._overlay_stdin = None
         self._card_seq = 0
+        self._incoming_card_id: str | None = None
 
     # -- overlay -----------------------------------------------------------
 
@@ -126,7 +127,6 @@ class Controller:
         partial = ""
         pump_task: asyncio.Task | None = None
         finalized = False
-        auto_speak_task: asyncio.Task | None = None
         try:
             async def pump():
                 while True:
@@ -167,18 +167,11 @@ class Controller:
                 log.warning("outgoing finalize timed out")
                 if partial and not finalized:
                     await self._finalize_outgoing(card_id, partial, source_lang, target)
-
-            if self.cfg.outgoing.auto_speak_after_ms > 0:
-                auto_speak_task = asyncio.create_task(
-                    self._auto_speak_after(self.cfg.outgoing.auto_speak_after_ms / 1000)
-                )
         finally:
             if pump_task and not pump_task.done():
                 pump_task.cancel()
             await cap.stop()
             await stream.close()
-            if auto_speak_task and not auto_speak_task.done():
-                auto_speak_task.cancel()
 
     async def _auto_speak_after(self, delay_s: float) -> None:
         await asyncio.sleep(delay_s)
@@ -211,6 +204,12 @@ class Controller:
         # Store the current card for the Speak action.
         self._ready_card = {"id": card_id, "source": text, "target": translated,
                             "target_lang": target}
+        # Auto-speak: speak immediately after finalizing (used when auto-speak
+        # is enabled). Manual Speak (F11) still goes through speak_ready().
+        if self.cfg.outgoing.auto_speak_after_ms > 0:
+            asyncio.create_task(
+                self._auto_speak_after(self.cfg.outgoing.auto_speak_after_ms / 1000)
+            )
 
     async def speak_ready(self) -> None:
         card = getattr(self, "_ready_card", None)
@@ -228,7 +227,20 @@ class Controller:
                                "source": card["source"], "target": card["target"],
                                "state": "ready"})
             return
+        # When playing through speakers, the monitor (incoming capture) hears
+        # our own TTS and would re-translate it. Pause incoming for the
+        # duration of playback to break the echo loop.
+        was_paused = False
+        if self.cfg.outgoing.output_destination == "speakers":
+            if self.incoming_task and not self.incoming_task.done():
+                self.incoming_task.cancel()
+                self.incoming_task = None
+                was_paused = True
+                log.info("incoming paused during TTS playback")
         await self._play(wav)
+        if was_paused:
+            self.incoming_task = asyncio.create_task(self.incoming())
+            log.info("incoming resumed after TTS playback")
         self._ready_card = None
 
     async def _play(self, wav: bytes) -> None:
@@ -302,6 +314,7 @@ class Controller:
         )
         await cap.start()
         card_id = self._next_card("in")
+        self._incoming_card_id = card_id
         partial = ""
         try:
             async def pump():
@@ -331,6 +344,9 @@ class Controller:
                             )
                         except Exception as exc:
                             translated = f"[translation failed: {exc}]"
+                        log.info("incoming translated (%s→%s): %r → %r",
+                                 self.cfg.incoming.source_language[:2],
+                                 self.cfg.incoming.target, final, translated)
                         self.overlay_send(
                             {"cmd": "card", "id": card_id, "direction": "in",
                              "source": final, "target": translated,
@@ -341,6 +357,8 @@ class Controller:
         finally:
             await cap.stop()
             await stream.close()
+            if self._incoming_card_id == card_id:
+                self._incoming_card_id = None
 
     # -- control server ----------------------------------------------------
 
@@ -406,10 +424,12 @@ class Controller:
             await self.speak_ready()
         elif action == "clear":
             self.overlay_send({"cmd": "clear_all"})
+            self._incoming_card_id = None
         elif action == "pause_incoming":
             if self.incoming_task and not self.incoming_task.done():
                 self.incoming_task.cancel()
                 self.incoming_task = None
+                self._incoming_card_id = None
                 log.info("incoming paused")
             else:
                 self.incoming_task = asyncio.create_task(self.incoming())
@@ -429,6 +449,7 @@ class Controller:
             elif not want and have:
                 self.incoming_task.cancel()
                 self.incoming_task = None
+                self._incoming_card_id = None
                 log.info("incoming disabled via settings")
         if "direction" in settings:
             direction = settings["direction"]
