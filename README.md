@@ -213,15 +213,18 @@ The controller process and overlay state machine are specified in
       gate ASR vs. mute overlay vs. both.
 - [ ] **Two-tier incoming translation** (user idea, under discussion): a fast
       streaming model renders short (2–3 s) provisional chunks in a lighter
-      "draft" style, while a more accurate offline model (e.g. Canary/Parakeet
-      TDT) re-translates longer utterance-level chunks and replaces the draft
-      text in place (no scrolling duplicates).
-- [ ] **Evaluate a higher-accuracy ASR model** to replace/augment Nemotron 3.5:
-      candidates researched — Parakeet TDT 0.6B v3 (es WER 3.45% FLEURS,
-      official GGUF, offline/buffered), Canary 1B Flash (883M, es WER 2.69%
-      MLS), Canary 1B v2 (978M, 25 langs, direct speech translation). None are
-      streaming; all need a buffered-chunking path. Next: pull `parakeet-tdt`
-      and benchmark against the calibration clips.
+      "draft" style, while a more accurate offline model (Parakeet TDT 0.6B v3,
+      now benchmarked) re-translates longer utterance-level chunks and replaces
+      the draft text in place (no scrolling duplicates).
+- [x] **Evaluate a higher-accuracy ASR model** — `parakeet-tdt` (0.6B v3) pulled
+      and benchmarked against the two verbatim calibration clips (Vulkan, q8_0):
+      WER 64.4% / 34.8% vs Nemotron 3.5 streaming 83.1% / 45.5%. Parakeet is
+      clearly more accurate but is **offline-only** (`--stream` fails: "this
+      transducer encoder is offline-only"). It is also ~4× faster on a 15 s
+      chunk (~1.1 s vs ~4.3 s). This confirms the two-tier plan: Parakeet TDT
+      as the accurate utterance-level re-transcriber, Nemotron 3.5 (or another
+      streaming model) for provisional drafts. Canary 1B Flash / v2 still
+      candidates for later (bigger, direct speech translation).
 - [ ] Analyze recorded daughter WAVs (level/bandwidth/silence) to guide child
       speech improvements.
 - [ ] Translation-speed benchmark using recorded WAVs (sentence length and
