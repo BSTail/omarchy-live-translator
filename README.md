@@ -6,8 +6,11 @@ locally — no cloud inference, no data leaves the machine.
 
 ## Status
 
-**Phase 1 (research + validation) is complete.** The core recognition engine has
-been validated on the target hardware. The plugin itself is not yet written.
+**Working end-to-end on the target hardware.** Outgoing push-to-talk translation
+(mic → ASR → NMT → overlay → TTS), incoming monitor translation (call audio →
+ASR → NMT → overlay), a themed floating overlay, a bar widget with a full
+settings panel, and a control CLI are all implemented and validated. Remaining
+work is polish, packaging, and optional features (see Roadmap).
 
 ## Goal
 
@@ -52,11 +55,11 @@ translation, and Piper for TTS.
 
 | Component | Role | Choice | Status |
 |---|---|---|---|
-| ASR (speech → text) | Recognize English and Spanish | NeMo-Speech.cpp, `nemotron-3.5-asr-streaming-0.6b` (q8_0), Vulkan backend | Validated |
-| NMT (text → text) | Translate en ↔ es | LibreTranslate (already running locally, `en_es`) | Existing |
-| TTS (text → speech) | Speak the translated text | Piper (Spanish + English voices) | To integrate |
-| Overlay | Bilingual live text review | Hyprland layer-shell / GTK4 window | To build |
-| Hotkeys | Push-to-talk + mode toggle | Hyprland bindings (separate from F9) | To build |
+| ASR (speech → text) | Recognize English and Spanish | NeMo-Speech.cpp, `nemotron-3.5-asr-streaming-0.6b` (q8_0), Vulkan backend | Working |
+| NMT (text → text) | Translate en ↔ es | LibreTranslate (already running locally, `en_es`) | Working |
+| TTS (text → speech) | Speak the translated text | Piper (Spanish + English voices) | Working |
+| Overlay | Bilingual live text review | Hyprland layer-shell / GTK4 window | Working |
+| Hotkeys | Push-to-talk + mode toggle | Hyprland bindings (separate from F9) | Working |
 
 ### Why NeMo-Speech.cpp
 
@@ -168,6 +171,15 @@ The controller process and overlay state machine are specified in
       `_restart_incoming` awaits the old task; unexpected pump errors logged.
 - [x] Glossary phrases for child speech: Matt variants, Mattacito/Maxacito,
       Danna, Roblox variants.
+- [x] Audio pre-processing before ASR: DC-block high-pass (120 Hz) + gain
+      (6 dB); panel toggle "Audio cleanup".
+- [x] Configurable ASR chunk size (`chunk_ms`, default 160 ms).
+- [x] Keep-screen-awake toggle (suppresses Omarchy screensaver/lock while
+      translating; `omarchy-toggle-idle stay-awake`).
+- [x] Capture latency fix: `parec --latency-msec 10` (was ~2 s buffered latency).
+- [x] Consistent incoming `asr_ms` telemetry (capture-start → ASR-final).
+- [x] Bounded debug captures: WAV roll (`debug_roll_sec`) + silence trim
+      (`debug_silence_sec`); all-silent captures deleted.
 
 ### In progress
 
@@ -175,14 +187,20 @@ The controller process and overlay state machine are specified in
 
 ### To do (prioritised)
 
+- [ ] **Clipboard translation** (planned): a button + hotkey that translates the
+      current clipboard text in both directions (auto-detect en/es), ready to
+      paste. Direction follows the configured language pair.
+- [ ] **Plugin naming**: rename to `OmaTranslate` (or similar "Oma"-prefixed
+      name) before packaging.
+- [ ] **Localized panel**: default panel language follows the OS locale (en /
+      es-LatAm for now), user-overridable in settings.
 - [ ] Analyze recorded daughter WAVs (level/bandwidth/silence) to guide child
       speech improvements.
 - [ ] Translation-speed benchmark using recorded WAVs (sentence length and
       settings sweep) — user idea, future task.
-- [ ] Package as an Omarchy plugin (installer, config, docs).
 - [ ] Word boosting is a no-op until the GGUF carries the embedded SentencePiece
       proto (`asr.tokenizer.spm_model`); reconvert model or find a GGUF that
-      includes it.
+      includes it. Feasibility verified (2.37 GB .nemo + torch venv).
 - [ ] Endpointing / VAD tuning for continuous speech (long unbroken utterances
       delay `.completed` finals; consider shorter EOU threshold or VAD).
 - [ ] Latency tuning for live calls (chunk size, streaming config).
