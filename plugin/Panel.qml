@@ -43,12 +43,13 @@ Panel {
 
   // Theme tokens. `Color.accent` and `Color.urgent` already track the active
   // theme (the shell applies theme changes automatically); `Color.urgent` is
-  // the theme's red. Green isn't exposed by the shell palette, so it's read
-  // once from the current theme's colors.toml via FileView (the same mechanism
-  // the shell's own Color singleton uses).
+  // the theme's red. Green/cyan aren't exposed by the shell palette, so they
+  // are read once from the current theme's colors.toml via FileView (the same
+  // mechanism the shell's own Color singleton uses).
   readonly property color themeAccent: Color.accent
   readonly property color themeRed: Color.urgent
   property color themeGreen: "#29D398"
+  property color themeCyan: "#59E1E3"
 
   FileView {
     id: themeColors
@@ -59,6 +60,8 @@ Panel {
       var raw = String(text() || "")
       var m = raw.match(/^\s*green\s*=\s*["']?(#[0-9A-Fa-f]{6})/m)
       if (m) root.themeGreen = m[1]
+      var c = raw.match(/^\s*cyan\s*=\s*["']?(#[0-9A-Fa-f]{6})/m)
+      if (c) root.themeCyan = c[1]
     }
   }
 
@@ -303,7 +306,7 @@ Panel {
           PanelSeparator {}
 
           // ---- outgoing --------------------------------------------------
-          PanelSectionHeader { text: "OUTGOING" }
+          PanelSectionHeader { text: "OUTGOING"; foreground: root.themeAccent }
 
           ButtonGroup {
             id: directionGroup
@@ -351,7 +354,7 @@ Panel {
           PanelSeparator {}
 
           // ---- incoming --------------------------------------------------
-          PanelSectionHeader { text: "INCOMING" }
+          PanelSectionHeader { text: "INCOMING"; foreground: root.themeCyan }
 
           Toggle {
             width: parent.width
@@ -430,7 +433,7 @@ Panel {
           PanelSeparator {}
 
           // ---- glossary --------------------------------------------------
-          PanelSectionHeader { text: "GLOSSARY" }
+          PanelSectionHeader { text: "GLOSSARY"; foreground: root.themeGreen }
 
           Toggle {
             width: parent.width
@@ -519,7 +522,7 @@ Panel {
           PanelSeparator {}
 
           // ---- activation -------------------------------------------------
-          PanelSectionHeader { text: "ACTIVATION" }
+          PanelSectionHeader { text: "ACTIVATION"; foreground: root.themeAccent }
 
           Toggle {
             width: parent.width
@@ -552,7 +555,7 @@ Panel {
           PanelSeparator {}
 
           // ---- diagnostics ------------------------------------------------
-          PanelSectionHeader { text: "DIAGNOSTICS" }
+          PanelSectionHeader { text: "DIAGNOSTICS"; foreground: root.themeGreen }
 
           Toggle {
             width: parent.width
