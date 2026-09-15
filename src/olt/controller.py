@@ -955,9 +955,14 @@ class Controller:
         elif action == "clear":
             self.overlay_send({"cmd": "clear_all"})
             self._incoming_card_id = None
-            self._incoming_gen += 1
+            # Bump the generation by restarting the stream, so the live stream
+            # never holds a stale gen (see the gen-orphaning bug: clearing used
+            # to just += 1, leaving the long-lived stream on the old gen, which
+            # made every subsequent final get dropped as "stale").
+            await self._restart_incoming()
         elif action == "clear_logs":
             self.clear_logs()
+            await self._restart_incoming()
         elif action == "clipboard_translate":
             await self.clipboard_translate()
         elif action == "pause_incoming":
@@ -1162,7 +1167,8 @@ class Controller:
             log.error("clear_logs failed: %s", exc)
         self.overlay_send({"cmd": "clear_all"})
         self._incoming_card_id = None
-        self._incoming_gen += 1
+        # The caller restarts the incoming stream after this (so the live
+        # stream's generation stays in sync); see the dispatch of clear_logs.
         log.info("cleared %d log/history file(s)", removed)
 
     def status(self) -> dict:
