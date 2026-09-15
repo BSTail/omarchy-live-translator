@@ -70,3 +70,9 @@ app_title = ""
 [overlay]
 position = "top-right"
 history = true
+
+[clipboard]
+# Seconds before the translated clipboard text is cleared. The clear only
+# fires if the clipboard still holds our translation (never wiping text the
+# user copied in the meantime). 0 disables the auto-clear.
+clear_sec = 30

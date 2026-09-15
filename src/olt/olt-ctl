@@ -20,7 +20,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$ACTION" ]; then
-    echo "usage: $0 <ptt_start|ptt_stop|speak|clear|clear_logs|pause_incoming|status|diagnostics>" >&2
+    echo "usage: $0 <ptt_start|ptt_stop|speak|clear|clear_logs|clipboard_translate|pause_incoming|status|diagnostics>" >&2
     exit 2
 fi
 

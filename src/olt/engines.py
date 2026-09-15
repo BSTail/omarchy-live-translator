@@ -37,6 +37,25 @@ class LibreTranslate:
         data = json.loads(resp.read().decode())
         return data["translatedText"]
 
+    async def detect(self, text: str) -> str:
+        """Return the detected language code (e.g. "en", "es"), or "" on failure."""
+        payload = json.dumps({"q": text}).encode()
+        req = urllib.request.Request(
+            f"{self.base}/detect",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            resp = await asyncio.to_thread(urllib.request.urlopen, req, timeout=20)
+        except Exception as exc:
+            log.error("LibreTranslate detect failed: %s", exc)
+            return ""
+        data = json.loads(resp.read().decode())
+        if not data:
+            return ""
+        return data[0].get("language", "")
+
 
 class Piper:
     def __init__(self, paths: PathsConfig, tts_cfg: TTSConfig):

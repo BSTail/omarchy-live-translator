@@ -312,6 +312,94 @@ class Controller:
         if proc.returncode != 0:
             log.error("paplay failed: %s", err.decode(errors="replace"))
 
+    # -- clipboard translation --------------------------------------------
+
+    async def clipboard_translate(self) -> None:
+        """Translate the current Wayland clipboard to the opposite language.
+
+        Reads the clipboard with wl-paste, detects the language, translates to
+        the other side of the en/es pair, writes the result back with wl-copy,
+        and schedules a guarded auto-clear so the translated text does not
+        linger in the clipboard.
+        """
+        text = await self._clipboard_read()
+        if not text:
+            log.info("clipboard translate: clipboard is empty or non-text")
+            return
+        src = await self.nmt.detect(text)
+        if src not in ("en", "es"):
+            # Foreign text: translate toward the user's own language.
+            tgt = self.cfg.outgoing.language[:2]
+            log.info("clipboard translate: detected %r (non-pair); targeting %r",
+                     src or "unknown", tgt)
+        else:
+            tgt = "en" if src == "es" else "es"
+            log.info("clipboard translate: detected %r; targeting %r", src, tgt)
+        try:
+            translated = await self.nmt.translate(text, src or "auto", tgt)
+        except Exception as exc:
+            log.error("clipboard translation failed: %s", exc)
+            return
+        if not translated:
+            return
+        await self._clipboard_write(translated)
+        logging.log_event({
+            "kind": "clipboard",
+            "direction": f"{src or 'auto'}→{tgt}",
+            "source": text,
+            "target": translated,
+        })
+        log.info("clipboard translated (%s→%s): %r → %r",
+                 src or "auto", tgt, text, translated)
+        if self.cfg.clipboard.clear_sec > 0:
+            asyncio.create_task(
+                self._clipboard_clear_after(self.cfg.clipboard.clear_sec, translated)
+            )
+
+    async def _clipboard_read(self) -> str:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "wl-paste", "--no-newline",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        except (OSError, asyncio.TimeoutError) as exc:
+            log.error("wl-paste failed: %s", exc)
+            return ""
+        if proc.returncode != 0:
+            return ""
+        return out.decode(errors="replace").strip()
+
+    async def _clipboard_write(self, text: str) -> None:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "wl-copy",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.communicate(input=text.encode()), timeout=10)
+        except (OSError, asyncio.TimeoutError) as exc:
+            log.error("wl-copy failed: %s", exc)
+
+    async def _clipboard_clear_after(self, delay_s: int, expected: str) -> None:
+        await asyncio.sleep(delay_s)
+        current = await self._clipboard_read()
+        if current and current == expected:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "wl-copy", "--clear",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await asyncio.wait_for(proc.communicate(), timeout=10)
+                log.info("clipboard cleared after %ds", delay_s)
+            except (OSError, asyncio.TimeoutError) as exc:
+                log.error("clipboard clear failed: %s", exc)
+        else:
+            log.info("clipboard clear skipped (contents changed)")
+
     async def _play_to_virtual_mic(self, wav: bytes) -> None:
         # Ensure the virtual mic (null sink + monitor) exists, then play into it.
         self._ensure_virtual_mic()
@@ -642,6 +730,8 @@ class Controller:
             self._incoming_gen += 1
         elif action == "clear_logs":
             self.clear_logs()
+        elif action == "clipboard_translate":
+            await self.clipboard_translate()
         elif action == "pause_incoming":
             if self.incoming_task and not self.incoming_task.done():
                 self.incoming_task.cancel()
@@ -841,6 +931,7 @@ class Controller:
             "chunk_ms": self.cfg.chunk_ms,
             "keep_awake": self.cfg.keep_awake,
             "two_tier": self.cfg.asr.offline_enabled,
+            "clipboard_clear_sec": self.cfg.clipboard.clear_sec,
         }
 
     # -- lifecycle ---------------------------------------------------------

@@ -88,6 +88,14 @@ class OverlayConfig:
 
 
 @dataclass
+class ClipboardConfig:
+    # Seconds before the translated clipboard text is cleared. The clear only
+    # fires if the clipboard still holds our translation (never wiping text the
+    # user copied in the meantime). 0 disables the auto-clear.
+    clear_sec: int = 30
+
+
+@dataclass
 class PathsConfig:
     nemo_speech: str = str(Path.home() / ".local" / "bin" / "nemo-speech")
     piper: str = str(Path.home() / ".local" / "bin" / "piper")
@@ -104,6 +112,7 @@ class Config:
     glossary: GlossaryConfig = field(default_factory=GlossaryConfig)
     activation: ActivationConfig = field(default_factory=ActivationConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
+    clipboard: ClipboardConfig = field(default_factory=ClipboardConfig)
     control_port: int = 8670
     log_dir: str = str(Path.home() / ".local" / "state" / "omarchy-live-translator")
     log_level: str = "INFO"
@@ -213,6 +222,9 @@ def load(path: str | None = None) -> Config:
     ovl = section("overlay")
     cfg.overlay.position = ovl.get("position", cfg.overlay.position)
     cfg.overlay.history = ovl.get("history", cfg.overlay.history)
+
+    clp = section("clipboard")
+    cfg.clipboard.clear_sec = int(clp.get("clear_sec", cfg.clipboard.clear_sec))
 
     cfg.control_port = data.get("control_port", cfg.control_port)
     cfg.log_dir = _expand(data.get("log_dir", cfg.log_dir))
