@@ -81,7 +81,7 @@ BarWidget {
     BarIconButton {
       id: clipButton
       bar: root.bar
-      text: "\uf328"
+      text: "\uf0ea"
       slotSize: Style.bar.statusSlot
       tooltipText: "Translate clipboard to the other language"
 
