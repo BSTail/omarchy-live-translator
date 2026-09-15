@@ -417,9 +417,11 @@ class Controller:
         stdout directly into another's stdin with asyncio subprocesses (a
         StreamReader has no fileno), so we materialize the bytes in between.
         """
+        types = await self._clipboard_types()
+        image_type = next((t for t in types if t.startswith("image/")), "image/png")
         try:
             paste = await asyncio.create_subprocess_exec(
-                "wl-paste", "--type", "image/png",
+                "wl-paste", "--type", image_type,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
