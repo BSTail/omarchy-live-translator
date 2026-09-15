@@ -28,6 +28,8 @@ Panel {
   property string incomingDirection: "es-en"
   property bool multimedia: false
   property bool twoTier: false
+  property bool gateEnabled: true
+  property real gateOpenRms: 200.0
   property bool history: true
   property bool glossaryEnabled: false
   property var glossaryPhrases: []
@@ -150,6 +152,10 @@ Panel {
           root.incomingDirection = d.incoming_direction || "es-en"
           root.multimedia = !!d.multimedia
           root.twoTier = !!d.two_tier
+          if (d.gate) {
+            root.gateEnabled = d.gate.enabled !== false
+            root.gateOpenRms = Number(d.gate.open_rms) || 200.0
+          }
           root.history = d.history !== false
           if (d.glossary) {
             root.glossaryEnabled = !!d.glossary.enabled
@@ -389,6 +395,74 @@ Panel {
             onClicked: {
               root.multimedia = !root.multimedia
               root.applySettings({ "multimedia": root.multimedia })
+            }
+          }
+
+          Toggle {
+            width: parent.width
+            visible: root.multimedia
+            label: "Ignore silence"
+            description: "Mute the monitor while it stays quiet so idle speaker noise can't produce phantom translations"
+            checked: root.gateEnabled
+            foreground: root.bar.foreground
+            accent: Color.accent
+            fontFamily: root.bar.fontFamily
+            onClicked: {
+              root.gateEnabled = !root.gateEnabled
+              root.applySettings({ "gate": { "enabled": root.gateEnabled } })
+            }
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(6)
+            visible: root.multimedia
+
+            Text {
+              width: parent.width
+              text: "Minimum speech level"
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.body
+            }
+
+            Row {
+              width: parent.width
+              spacing: Style.space(10)
+
+              PanelSlider {
+                id: gateSlider
+                bar: root.bar
+                width: parent.width - gateValue.implicitWidth - Style.space(10)
+                anchors.verticalCenter: parent.verticalCenter
+                minimum: 50
+                maximum: 2000
+                step: 10
+                value: root.gateOpenRms
+                integer: true
+                onReleased: function(v) {
+                  root.gateOpenRms = v
+                  root.applySettings({ "gate": { "open_rms": v } })
+                }
+              }
+
+              Text {
+                id: gateValue
+                text: Math.round(root.gateOpenRms)
+                color: Qt.darker(root.bar.foreground, 1.3)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                anchors.verticalCenter: parent.verticalCenter
+              }
+            }
+
+            Text {
+              width: parent.width
+              text: "Higher = only louder audio is translated. Lower = more sensitive to quiet speech."
+              color: Qt.darker(root.bar.foreground, 1.5)
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
             }
           }
 

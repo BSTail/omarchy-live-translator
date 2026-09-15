@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
+import struct
 import subprocess
 import time
 from http import HTTPStatus
@@ -22,6 +24,90 @@ from . import audio, engines, logging, nemo
 from .config import Config, load
 
 log = logging.get()
+
+
+class SilenceGate:
+    """Mute the monitor when it stays quiet (multimedia mode only).
+
+    The incoming monitor is a continuous stream; between real audio there is
+    near-silence (digital noise floor, faint system sounds). Feeding that to
+    the streaming ASR can produce hallucinated finals. This gate keeps the
+    stream flowing but replaces quiet audio with zero PCM, and only lets real
+    audio through once the signal rises above the open threshold for long
+    enough. A short preroll buffer is flushed on re-open so word onsets are
+    not clipped.
+
+    RMS is computed on 16 kHz mono s16le samples.
+    """
+
+    def __init__(
+        self,
+        open_rms: float,
+        close_rms: float,
+        open_ms: int,
+        close_ms: int,
+        preroll_ms: int,
+    ):
+        self.open_rms = max(0.0, open_rms)
+        self.close_rms = max(0.0, close_rms)
+        self.open_ms = max(0, open_ms)
+        self.close_ms = max(0, close_ms)
+        self.preroll_ms = max(0, preroll_ms)
+        self._open = True
+        self._loud_ms = 0.0
+        self._quiet_ms = 0.0
+        self._preroll: bytearray = bytearray()
+        self._preroll_cap = int(audio.RATE * 2 * preroll_ms / 1000)
+
+    @property
+    def open(self) -> bool:
+        return self._open
+
+    def _rms(self, chunk: bytes) -> float:
+        n = len(chunk) // 2
+        if n == 0:
+            return 0.0
+        samples = struct.unpack(f"<{n}h", chunk)
+        return math.sqrt(sum(s * s for s in samples) / n)
+
+    def process(self, chunk: bytes, chunk_ms: int) -> bytes:
+        """Return the audio to forward (possibly zero-filled) for this chunk."""
+        if not chunk:
+            return chunk
+        rms = self._rms(chunk)
+        if self._open:
+            if rms <= self.close_rms:
+                self._quiet_ms += chunk_ms
+                if self._quiet_ms >= self.close_ms:
+                    self._open = False
+                    self._quiet_ms = 0.0
+                    log.info(
+                        "silence gate closed (rms %.0f < %.0f for %dms)",
+                        rms, self.close_rms, self.close_ms,
+                    )
+                    return bytes(len(chunk))
+            else:
+                self._quiet_ms = 0.0
+            return chunk
+        # Closed: buffer real audio as preroll; forward silence otherwise.
+        if rms > self.open_rms:
+            self._loud_ms += chunk_ms
+            self._preroll.extend(chunk)
+            if len(self._preroll) > self._preroll_cap:
+                del self._preroll[: len(self._preroll) - self._preroll_cap]
+            if self._loud_ms >= self.open_ms:
+                self._open = True
+                self._loud_ms = 0.0
+                preroll = bytes(self._preroll)
+                self._preroll.clear()
+                log.info(
+                    "silence gate opened (rms %.0f > %.0f for %dms, %d bytes preroll)",
+                    rms, self.open_rms, self.open_ms, len(preroll),
+                )
+                return preroll + chunk
+        else:
+            self._loud_ms = 0.0
+        return bytes(len(chunk))
 
 
 class Controller:
@@ -552,6 +638,17 @@ class Controller:
         self._incoming_ring = bytearray()
         ring_cap = int(audio.RATE * 2 * lookback_ms / 1000)
         prev_processed_sec = 0.0
+        # Silence gate is only meaningful in multimedia mode (continuous media
+        # audio). In live-call mode audio flows unfiltered.
+        gate = None
+        if self.cfg.incoming.multimedia and self.cfg.incoming.gate_enabled:
+            gate = SilenceGate(
+                self.cfg.incoming.gate_open_rms,
+                self.cfg.incoming.gate_close_rms,
+                self.cfg.incoming.gate_open_ms,
+                self.cfg.incoming.gate_close_ms,
+                self.cfg.incoming.gate_preroll_ms,
+            )
         try:
             async def pump():
                 nonlocal captured_bytes
@@ -560,6 +657,8 @@ class Controller:
                         chunk = await cap.read_chunk(self.cfg.chunk_ms)
                         if not chunk:
                             break
+                        if gate is not None:
+                            chunk = gate.process(chunk, self.cfg.chunk_ms)
                         await stream.send_audio(chunk)
                         if self.cfg.asr.offline_enabled:
                             self._incoming_ring.extend(chunk)
@@ -869,6 +968,28 @@ class Controller:
             # time, so a toggle needs a fresh stream to take effect.
             await self._restart_incoming()
             log.info("multimedia mode set to %s", self.cfg.incoming.multimedia)
+        if "gate" in settings:
+            gate = settings["gate"]
+            if isinstance(gate, dict):
+                if "enabled" in gate:
+                    self.cfg.incoming.gate_enabled = bool(gate["enabled"])
+                if "open_rms" in gate:
+                    self.cfg.incoming.gate_open_rms = float(gate["open_rms"])
+                if "close_rms" in gate:
+                    self.cfg.incoming.gate_close_rms = float(gate["close_rms"])
+                if "open_ms" in gate:
+                    self.cfg.incoming.gate_open_ms = int(gate["open_ms"])
+                if "close_ms" in gate:
+                    self.cfg.incoming.gate_close_ms = int(gate["close_ms"])
+                if "preroll_ms" in gate:
+                    self.cfg.incoming.gate_preroll_ms = int(gate["preroll_ms"])
+            await self._restart_incoming()
+            log.info(
+                "silence gate updated: enabled=%s open_rms=%.0f close_rms=%.0f",
+                self.cfg.incoming.gate_enabled,
+                self.cfg.incoming.gate_open_rms,
+                self.cfg.incoming.gate_close_rms,
+            )
         if "history" in settings:
             self.cfg.overlay.history = bool(settings["history"])
             self.overlay_send({"cmd": "history", "enabled": self.cfg.overlay.history})
@@ -993,6 +1114,14 @@ class Controller:
             "incoming_direction": "es-en" if self.cfg.incoming.source_language.startswith("es") else "en-es",
             "multimedia": self.cfg.incoming.multimedia,
             "history": self.cfg.overlay.history,
+            "gate": {
+                "enabled": self.cfg.incoming.gate_enabled,
+                "open_rms": self.cfg.incoming.gate_open_rms,
+                "close_rms": self.cfg.incoming.gate_close_rms,
+                "open_ms": self.cfg.incoming.gate_open_ms,
+                "close_ms": self.cfg.incoming.gate_close_ms,
+                "preroll_ms": self.cfg.incoming.gate_preroll_ms,
+            },
             "glossary": {
                 "enabled": self.cfg.glossary.enabled,
                 "phrases": self.cfg.glossary.phrases,

@@ -60,9 +60,21 @@ class IncomingConfig:
     endpointing_ms: int = 800
     # Multimedia mode: media audio is continuous, so use a longer EOU window
     # to segment long unbroken speech into cards instead of waiting for a
-    # long silence that never comes.
+    # long silence that never comes. Raised to 2500ms so natural mid-sentence
+    # pauses (e.g. a child speaking) don't split one sentence across cards.
     multimedia: bool = True
-    multimedia_endpointing_ms: int = 1600
+    multimedia_endpointing_ms: int = 2500
+    # Silence gate (multimedia mode only): when the monitor signal stays below
+    # `gate_close_rms` for `gate_close_ms`, incoming audio is muted (zero PCM)
+    # until it rises above `gate_open_rms` for `gate_open_ms`. This keeps idle
+    # speaker noise from producing hallucinated finals. A short preroll buffer
+    # is flushed on re-open so word onsets are not clipped.
+    gate_enabled: bool = True
+    gate_open_rms: float = 200.0
+    gate_close_rms: float = 100.0
+    gate_open_ms: int = 320
+    gate_close_ms: int = 1600
+    gate_preroll_ms: int = 400
 
 
 @dataclass
@@ -225,6 +237,12 @@ def load(path: str | None = None) -> Config:
     cfg.incoming.multimedia_endpointing_ms = inc.get(
         "multimedia_endpointing_ms", cfg.incoming.multimedia_endpointing_ms
     )
+    cfg.incoming.gate_enabled = inc.get("gate_enabled", cfg.incoming.gate_enabled)
+    cfg.incoming.gate_open_rms = float(inc.get("gate_open_rms", cfg.incoming.gate_open_rms))
+    cfg.incoming.gate_close_rms = float(inc.get("gate_close_rms", cfg.incoming.gate_close_rms))
+    cfg.incoming.gate_open_ms = int(inc.get("gate_open_ms", cfg.incoming.gate_open_ms))
+    cfg.incoming.gate_close_ms = int(inc.get("gate_close_ms", cfg.incoming.gate_close_ms))
+    cfg.incoming.gate_preroll_ms = int(inc.get("gate_preroll_ms", cfg.incoming.gate_preroll_ms))
 
     gl = section("glossary")
     cfg.glossary.enabled = gl.get("enabled", cfg.glossary.enabled)
