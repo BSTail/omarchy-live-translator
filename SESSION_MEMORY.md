@@ -255,5 +255,12 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   BarWidget.qml needs a status poll (it currently has none; only Panel.qml
   polls). Tooltip feedback: "Translated → clipboard". Keep out of the speech
   overlay.
+- DONE (commit 9bc478d): BarWidget.qml now has a Row with the main icon +
+  a clipboard icon (`\uf328`), always visible. Left-click runs
+  `olt-ctl clipboard_translate` via a Process; tooltip "Translated →
+  clipboard" (or "failed") shown via `root.bar.showTooltip`, auto-hidden by a
+  2s Timer. qmllint clean; shell reloaded with no errors. NOTE: the widget
+  still has no status poll (not needed for the clipboard icon — it's always
+  shown), but add one if the icon ever needs serviceRunning gating.
 - FUTURE (backlog): image/screenshot clipboard translation (OCR or vision
   model) — user wants to explore later, not now.
