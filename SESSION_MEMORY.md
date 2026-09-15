@@ -142,24 +142,47 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
     and `clear_logs` now call `_restart_incoming()`. Verified: `clear` triggers
     a fresh `incoming started` with the current gen.
 
-## Next up (user's priority)
-- **FIRST-PLAY DOESN'T POP UP (new, 2026-09-15)**: user reports the very first
-  clip played after boot sometimes produces NO card, but after Stop → Start it
-  works immediately and then all subsequent clips are good. Warm-up + snapshot
-  + gen-orphaning fixes are in but did NOT eliminate this. NOT YET INVESTIGATED.
-  Hypotheses to test: (a) the warm-up throwaway stream leaves the server's
-  RNNT cache/lattice in a state the first real stream inherits; (b)
-  `_activation_ok()` or `incoming()` startup race; (c) first `parec` monitor
-  capture needs a moment to sync; (d) first `.completed` final swallowed by a
-  generation mismatch. Gather journal + events around the first clip after a
-  clean restart.
-- **Gate↔endpointing interaction** (2500ms EOU + gate mute): still to dig into.
-  User's latest real-world tests are good (below), so this is lower priority
-  than the first-play bug.
-- **Upstream NeMo endpointing findings** (issues #40/#41/#22): token-silence
-  EOU misfires mid-sentence + hard reset corrupts transcript; trailing
-  punctuation leaks into next final. USER SAYS: do NOT worry about these unless
-  we notice a real problem. Noted for reference only.
+## Current investigation / next up (user's priority, 2026-09-15)
+- **FIRST-PLAY DOESN'T POP UP is reproduced but root cause is NOT proven.**
+  After a clean service restart the first four-second incoming clip can open
+  and close the RMS gate but create no overlay card; replaying it works. Debug
+  WAVs prove the clip was captured at full level. The added
+  `incoming completed` log shows no `.completed` event for a failing attempt.
+  However, a popup is created by the first `.delta`, so next instrumentation
+  must also record first-delta time/count and all non-delta event types. Do not
+  call this endpointing-only until we know whether deltas were absent too.
+- **Senior-review course correction:** upstream issue #40 / PR #41 are related
+  token-silence EOU problems, but they document premature EOU and hard-reset
+  transcript corruption, not our missing first card. Do NOT cherry-pick PR #41
+  or add `input_audio_buffer.commit` on gate-close yet. Commit destroys the
+  recognition stream per the HTTP server implementation and risks continuity,
+  punctuation, and accuracy; PR #41 is still open with unresolved NVIDIA
+  review findings about punctuation leakage and forced-EOU draining.
+- **Officially supported experiment first:** NeMo documents VAD-driven RNNT
+  endpointing as `--endpointing --vad-based-eou --vad-model <silero.gguf>`.
+  The installed binary supports these flags, but no Silero GGUF is installed.
+  Test token-silence with gate ON, token-silence with gate OFF, and VAD-driven
+  EOU with the same 16 kHz clip before changing architecture.
+- **Controlled reproduction required:** use a fresh isolated NeMo server per
+  case, the exact production binary/model, 16 kHz PCM, production 160 ms frames
+  paced in real time, and at least 10 runs/configuration. Earlier ad-hoc WS
+  tests varied frame size, pacing, leading silence, and sample rate and ran
+  beside the live controller; treat their non-monotonic results as exploratory.
+- **Startup audible self-test was experimental, not a health check.** It played
+  Piper `Hola` and unconditionally showed `Service started / OmaTranslate
+  ready`, but no real ASR `.completed` or NMT result followed. Senior review
+  removed it from source before commit; deployed code may still contain the
+  experiment until the service is deliberately redeployed after diagnosis.
+- **Explicit realtime route:** the installed 0.1.0 binary accepts both
+  `/v1/realtime` and `/v1/audio/transcriptions/realtime` (HTTP 101 verified).
+  Official docs call `/v1/realtime` a backward-compatibility alias; migrate to
+  the explicit audio route after this diagnosis, not during it.
+- **Clipboard OCR:** user retested and says it is working. The speculative
+  `_clipboard_last` idempotency experiment was removed from source before
+  commit; no OCR behavior change is planned now.
+- **Graft:** local structural graph rebuilt from scratch with graft 0.18.0 and
+  `graft check` passes. No `GRAFT_API_KEY` is available, so the deep semantic
+  tier was removed rather than retaining stale summaries.
 - **User test results (2026-09-15, excellent)**: multiple daughter audio files
   translated well; the 4-second clip (historically the hardest) came out 100%
   correct on the most recent run. Full beginning + end of sentences captured.
@@ -250,8 +273,36 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 7. Gating can starve endpointing; headphones stop acoustic (not digital) feedback
    — TTS into the captured sink's monitor still loops.
 8. Misc: +6 dB preamp can clip; debug WAVs are post-processing; custom WS client
-   lacks ping/pong/fragmentation; installed build 404s on documented
-   `/v1/audio/transcriptions/realtime` (version pinning).
+   lacks ping/pong/fragmentation. The older note that the explicit realtime
+   route 404s is stale: the installed binary now returns HTTP 101 for both the
+   explicit and compatibility routes (verified 2026-09-15).
+
+## Senior review (2026-09-15) — current guardrails
+- Official API docs say realtime clients may send one `session.update`, binary
+  PCM16, and finish with `input_audio_buffer.commit`; `clear` discards buffered
+  audio. The explicit route is `/v1/audio/transcriptions/realtime`; the old
+  `/v1/realtime` route is a compatibility alias when VoiceChat is absent.
+- Official endpointing docs: token-silence is the default, while VAD-driven EOU
+  requires a separate Silero GGUF. The installed binary supports `--vad-model`
+  and VAD-based endpointing, but the project does not currently install one.
+- NVIDIA/NeMo-Speech.cpp issue #40 is open. It confirms token-silence can mistake
+  RNNT decode latency for acoustic silence and fire too early. PR #41 proposes
+  a soft EOU checkpoint and passes automated builds, but is unmerged and has
+  unresolved reviewer concerns around punctuation leakage and forced EOU.
+- Issue #22 separately reports punctuation leaking into the next final on a
+  persistent stream. These upstream reports make gate-triggered hard commits a
+  risky workaround rather than a safe first choice.
+- The exploratory WS scripts in `/tmp/opencode/` are NOT project tests and their
+  results are not authoritative: some used 100 ms frames instead of production
+  160 ms, sent audio unpaced or in one large frame, ran beside the live server,
+  and one Piper raw clip was 22.05 kHz while declared as 16 kHz.
+- Runtime provenance remains unclear: `~/.local/bin/nemo-speech` is a manually
+  deployed 0.1.0 binary (not package-owned); local upstream checkout is
+  NVIDIA main `a5b6953`. Record the binary's exact source commit/build options
+  before comparing fixes or filing a new upstream issue.
+- Graft is a gitignored local cache by design. A clean structural rebuild is
+  current; without an API key there are no semantic summaries. Run
+  `graft build --deep` again only after configuring `GRAFT_API_KEY`.
 
 ## Naming / branding
 - Plugin renamed to **OmaTranslate** (`bstail.omatranslate`) — manifest,

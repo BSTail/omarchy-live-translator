@@ -716,6 +716,13 @@ class Controller:
                         final = ev.get("transcript", partial).strip()
                         t_asr_final = time.monotonic()
                         this_processed = float(ev.get("audio_processed") or 0.0)
+                        # Log every final (even empty) so a first-utterance
+                        # empty `.completed` is visible instead of silently
+                        # producing no card.
+                        log.info(
+                            "incoming completed (gen %d, %d chars, audio_processed %.2fs)",
+                            gen, len(final), this_processed,
+                        )
                         utterance_audio = b""
                         if self.cfg.asr.offline_enabled:
                             utterance_audio = self._snapshot_utterance_audio(
