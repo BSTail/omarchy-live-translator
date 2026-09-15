@@ -226,6 +226,25 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   `plugins.md`; kit source `/usr/share/omarchy/shell/Ui/*.qml` and
   `/usr/share/omarchy/shell/Commons/{Color,Style,Border}.qml`.
 
+## Privacy / logging (commit cf61461)
+- Default is privacy-first: transcript/clipboard TEXT is NOT written to
+  `events.jsonl` or the human log unless `debug_capture` is ON. Otherwise only
+  metadata (direction, char lengths, timings) is logged.
+- `debug_capture` toggle (panel label "Save all audio transcripts") gates BOTH
+  full transcript text in events AND the WAV debug captures. Renamed from
+  "Record audio captures" per user.
+- Clipboard events NEVER log source/target text (metadata only) — clipboard
+  text is transient (30s auto-clear), so it should never persist anywhere.
+- 24h retention: `logging.prune_events(86400)` runs at startup and hourly via
+  `Controller._events_pruner()`; deletes events.jsonl lines older than 24h.
+- `clear_logs` / panel "Clear logs & history" still wipes events.jsonl + WAVs +
+  olt.log.
+- Hardware note: NO discrete VRAM — Intel Core Ultra 7 258V + Arc 130V/140V
+  iGPU uses unified memory (32 GB). Both ASR models are 0.6B q8_0 (~741 MB +
+  ~714 MB), trivial vs 32 GB. Two-tier default-ON is fine.
+- LibreTranslate has no retry yet (engines.py): a single 20s timeout. Consider
+  adding one retry for long-text robustness.
+
 ## User preferences
 - Native English speaker; main direction en→es outgoing, es→en incoming.
 - Assume bi-directional works; assume Bluetooth/headphones need no echo pause.
