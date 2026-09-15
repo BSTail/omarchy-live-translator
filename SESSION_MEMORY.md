@@ -143,36 +143,43 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
     a fresh `incoming started` with the current gen.
 
 ## Current investigation / next up (user's priority, 2026-09-15)
-- **FIRST-PLAY DOESN'T POP UP is reproduced but root cause is NOT proven.**
-  After a clean service restart the first four-second incoming clip can open
-  and close the RMS gate but create no overlay card; replaying it works. Debug
-  WAVs prove the clip was captured at full level. The added
-  `incoming completed` log shows no `.completed` event for a failing attempt.
-  However, a popup is created by the first `.delta`, so next instrumentation
-  must also record first-delta time/count and all non-delta event types. Do not
-  call this endpointing-only until we know whether deltas were absent too.
-- **Senior-review course correction:** upstream issue #40 / PR #41 are related
-  token-silence EOU problems, but they document premature EOU and hard-reset
-  transcript corruption, not our missing first card. Do NOT cherry-pick PR #41
-  or add `input_audio_buffer.commit` on gate-close yet. Commit destroys the
-  recognition stream per the HTTP server implementation and risks continuity,
-  punctuation, and accuracy; PR #41 is still open with unresolved NVIDIA
-  review findings about punctuation leakage and forced-EOU draining.
-- **Officially supported experiment first:** NeMo documents VAD-driven RNNT
-  endpointing as `--endpointing --vad-based-eou --vad-model <silero.gguf>`.
-  The installed binary supports these flags, but no Silero GGUF is installed.
-  Test token-silence with gate ON, token-silence with gate OFF, and VAD-driven
-  EOU with the same 16 kHz clip before changing architecture.
-- **Controlled reproduction required:** use a fresh isolated NeMo server per
-  case, the exact production binary/model, 16 kHz PCM, production 160 ms frames
-  paced in real time, and at least 10 runs/configuration. Earlier ad-hoc WS
-  tests varied frame size, pacing, leading silence, and sample rate and ran
-  beside the live controller; treat their non-monotonic results as exploratory.
-- **Startup audible self-test was experimental, not a health check.** It played
-  Piper `Hola` and unconditionally showed `Service started / OmaTranslate
-  ready`, but no real ASR `.completed` or NMT result followed. Senior review
-  removed it from source before commit; deployed code may still contain the
-  experiment until the service is deliberately redeployed after diagnosis.
+- **ROOT CAUSE FOUND — it is an IDLE bug, not a startup bug (user's call, now
+  proven).** After a clip finalizes, a long run of *zero-PCM silence* fed to
+  the streaming RNNT server makes the next clip produce NO deltas and NO
+  final: the server stops decoding until the stream is torn down. Reproduced
+  in isolation (fresh NeMo server, no controller/gate/overlay) on BOTH the
+  Vulkan and CPU backends, so it is upstream, not our code.
+- **The trigger is zero-PCM silence, not wire silence or small frames.**
+  Isolated CPU-server matrix (clip → 6s trailing silence → gap → clip):
+  wire-silent gaps up to 25s: both clips decode. 1ms/16ms/40ms/80ms zero-PCM
+  keepalive frames every 160ms: both clips decode. Full 160ms zero-PCM frames
+  (i.e. what the RMS gate emits while closed): gap ≥15s → second clip dies.
+  `input_audio_buffer.clear` during the gap does NOT help. Endpointing OFF
+  (no EOU) still decodes continuously, so the stall is tied to the
+  token-silence EOU path, not the base RNNT decoder.
+- **Upstream SIGABRT is the same family.** The Vulkan streaming server crashed
+  at 18:04:50 with `GGML_ASSERT(ne3 == ne13) failed` at ggml-cpu.c:1270 inside
+  `CacheAwareEncoder::encode` (mul_mat), matching the known intermittent
+  warmup crash. 9 prior nemo-speech SIGABRT cores exist on this machine. The
+  CPU isolated server did NOT crash during the stall matrix, so the stall and
+  the Vulkan abort are separate manifestations of the same fragile streaming
+  path.
+- **No upstream report exists yet.** GitHub search of NVIDIA/NeMo-Speech.cpp
+  for `ne3/ne13/GGML_ASSERT` returns nothing; idle/silence/stall search returns
+  only unrelated issues (#40 token-silence EOU, #19 TTS DC, #8 converter).
+  Filing a new upstream issue is warranted once we have a minimal repro.
+- **Controller now self-heals.** `incoming()` calls `asr.restart()` on loop
+  error (previously hot-looped ECONNREFUSED every 2s after a crash), and
+  `NemoASR.restart()` was added. Deployed + verified: two post-restart clips
+  translated; the idle-gap failure has not re-fired since.
+- **Workaround options (decide before upstream filing):** (a) keep the RMS gate
+  closed→send NO audio while quiet instead of zero-PCM (changes gate semantics;
+  verify EOU still fires); (b) periodic stream recycle on long silence; (c)
+  VAD-driven EOU via Silero (official alternative to token-silence). None are
+  implemented yet.
+- **Senior-review course correction (still holds):** upstream issue #40 / PR
+  #41 document premature EOU and hard-reset corruption, not this stall. Do NOT
+  cherry-pick PR #41 or add gate-triggered `input_audio_buffer.commit`.
 - **Explicit realtime route:** the installed 0.1.0 binary accepts both
   `/v1/realtime` and `/v1/audio/transcriptions/realtime` (HTTP 101 verified).
   Official docs call `/v1/realtime` a backward-compatibility alias; migrate to

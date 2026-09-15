@@ -130,6 +130,24 @@ class NemoASR:
             log.info("stopped nemo-speech serve")
         await self.stop_offline()
 
+    async def restart(self) -> None:
+        """Stop and restart the streaming server after a crash.
+
+        `start()` only retries when the process fails *during* startup; the
+        stderr watcher merely logs lines, so a mid-stream SIGABRT is not
+        detected until a client gets ECONNRESET. This re-runs the retry loop
+        with a fresh process.
+        """
+        if self.proc is not None and self.proc.returncode is None:
+            self.proc.terminate()
+            try:
+                await asyncio.wait_for(self.proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                self.proc.kill()
+                await self.proc.wait()
+        log.info("restarting nemo-speech serve")
+        await self.start()
+
     # -- offline (two-tier) server -----------------------------------------
 
     async def start_offline(self) -> None:

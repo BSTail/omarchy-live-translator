@@ -598,6 +598,12 @@ class Controller:
                 raise
             except Exception as exc:
                 log.error("incoming loop error: %s", exc)
+                # The streaming ASR server can SIGABRT (ggml-cpu.c:1270
+                # `ne3 == ne13` in the cache-aware encoder) while decoding a
+                # live stream. Its stdout/stderr watcher only reads lines, so
+                # the crash is invisible to `start()`. Restart the server and
+                # the stream here instead of hot-looping reconnect errors.
+                await self.asr.restart()
                 await asyncio.sleep(2)
 
     async def _incoming_once(self) -> None:
@@ -627,6 +633,11 @@ class Controller:
         partial = ""
         t_asr_final: float | None = None
         t_capture_start = time.monotonic()
+        # First-play diagnostics: count deltas, time the first one, and tally
+        # every other event type so a silent failure is attributable.
+        delta_count = 0
+        first_delta_at: float | None = None
+        other_events: dict[str, int] = {}
         # Monotonic sample offsets. `cap.read_chunk` returns PCM16 frames of a
         # fixed chunk size. We record how many sample bytes we've captured at
         # the moment each final is emitted; combined with the server's
@@ -682,11 +693,19 @@ class Controller:
                                 # Gate just opened: the utterance starts at the
                                 # preroll+chunk about to be appended.
                                 utt_start = ring_base + len(self._incoming_ring)
+                                log.info(
+                                    "gate opened (stream %.2fs, preroll+chunk %d bytes)",
+                                    captured_bytes / (audio.RATE * 2), len(chunk),
+                                )
                             elif was_open and not gate.open:
                                 # Gate just closed: the utterance (incl. its
                                 # trailing silence) ends here, before the zero
                                 # chunk about to be appended.
                                 utt_end = ring_base + len(self._incoming_ring)
+                                log.info(
+                                    "gate closed (stream %.2fs)",
+                                    captured_bytes / (audio.RATE * 2),
+                                )
                         await stream.send_audio(chunk)
                         if self.cfg.asr.offline_enabled:
                             self._incoming_ring.extend(chunk)
@@ -707,6 +726,9 @@ class Controller:
                 async for ev in stream.events():
                     t = ev.get("type")
                     if t == "conversation.item.input_audio_transcription.delta":
+                        delta_count += 1
+                        if first_delta_at is None:
+                            first_delta_at = time.monotonic() - t_capture_start
                         partial = (partial + ev.get("delta", "")).strip()
                         self.overlay_send(
                             {"cmd": "card", "id": card_id, "direction": "in",
@@ -720,8 +742,10 @@ class Controller:
                         # empty `.completed` is visible instead of silently
                         # producing no card.
                         log.info(
-                            "incoming completed (gen %d, %d chars, audio_processed %.2fs)",
+                            "incoming completed (gen %d, %d chars, audio_processed %.2fs, "
+                            "deltas %d, first_delta %.3fs)",
                             gen, len(final), this_processed,
+                            delta_count, first_delta_at if first_delta_at is not None else -1.0,
                         )
                         utterance_audio = b""
                         if self.cfg.asr.offline_enabled:
@@ -748,8 +772,16 @@ class Controller:
                         self._incoming_card_id = card_id
                         partial = ""
                         t_capture_start = time.monotonic()
+                        delta_count = 0
+                        first_delta_at = None
                         audio.prune_debug_dir(self.cfg)
+                    else:
+                        other_events[t or "<no-type>"] = other_events.get(t or "<no-type>", 0) + 1
             finally:
+                log.info(
+                    "incoming stream ended (gen %d, deltas %d, other events %s)",
+                    gen, delta_count, other_events or "{}",
+                )
                 pump_task.cancel()
                 try:
                     await pump_task
