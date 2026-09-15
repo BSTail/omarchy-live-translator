@@ -928,6 +928,9 @@ class Controller:
                 else:
                     await self.asr.stop_offline()
                 log.info("two-tier accuracy set to %s", want)
+        if "clipboard_log_text" in settings:
+            self.cfg.clipboard.log_text = bool(settings["clipboard_log_text"])
+            log.info("clipboard text logging set to %s", self.cfg.clipboard.log_text)
 
     async def _restart_incoming(self) -> None:
         """Reconnect the incoming stream so stream-level settings take effect."""
@@ -1011,6 +1014,7 @@ class Controller:
             "two_tier": self.cfg.asr.offline_enabled,
             "clipboard_clear_sec": self.cfg.clipboard.clear_sec,
             "clipboard_ocr": self.cfg.clipboard.ocr_enabled,
+            "clipboard_log_text": self.cfg.clipboard.log_text,
         }
 
     # -- lifecycle ---------------------------------------------------------

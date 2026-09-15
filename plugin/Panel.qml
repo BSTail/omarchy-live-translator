@@ -39,6 +39,7 @@ Panel {
   property bool preprocess: true
   property real preampDb: 6.0
   property bool keepAwake: true
+  property bool clipboardLogText: false
 
   // Theme tokens. `Color.accent` and `Color.urgent` already track the active
   // theme (the shell applies theme changes automatically); `Color.urgent` is
@@ -164,6 +165,7 @@ Panel {
           root.preprocess = d.preprocess_enable !== false
           root.preampDb = Number(d.preamp_db) || 6.0
           root.keepAwake = d.keep_awake !== false
+          root.clipboardLogText = d.clipboard_log_text === true
         } catch (e) {
           root.serviceRunning = false
         }
@@ -556,6 +558,20 @@ Panel {
             onClicked: {
               root.debugCapture = !root.debugCapture
               root.applySettings({ "debug_capture": root.debugCapture })
+            }
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Log clipboard text"
+            description: "Include clipboard source and translation text in logs. OFF logs only character counts for privacy."
+            checked: root.clipboardLogText
+            foreground: root.bar.foreground
+            accent: Color.accent
+            fontFamily: root.bar.fontFamily
+            onClicked: {
+              root.clipboardLogText = !root.clipboardLogText
+              root.applySettings({ "clipboard_log_text": root.clipboardLogText })
             }
           }
 
