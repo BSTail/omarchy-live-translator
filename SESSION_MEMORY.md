@@ -226,15 +226,16 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   `plugins.md`; kit source `/usr/share/omarchy/shell/Ui/*.qml` and
   `/usr/share/omarchy/shell/Commons/{Color,Style,Border}.qml`.
 
-## Privacy / logging (commits cf61461, 6c61f49, 69cfec3)
+## Privacy / logging (commits cf61461, 6c61f49, 69cfec3, 3824eac)
 - Default is privacy-first: transcript/clipboard TEXT is NOT written to
   `events.jsonl` or the human log unless the relevant toggle is ON. Otherwise
   only metadata (direction, char lengths, timings) is logged.
 - `debug_capture` toggle (panel label "Save all audio transcripts") gates BOTH
   full transcript text in events AND the WAV debug captures.
 - Clipboard text logging has its OWN toggle: `[clipboard] log_text` (default
-  false). When ON, clipboard source/target text is logged; when OFF only
-  src_len/tgt_len. No panel toggle yet — config-only.
+  false) + panel toggle "Log clipboard text" under DIAGNOSTICS (commit
+  3824eac). When ON, clipboard source/target text is logged; when OFF only
+  src_len/tgt_len. Wired via status `clipboard_log_text` + `_apply_settings`.
 - 24h retention for ALL plugin log files: `logging.prune_events(86400)` (line
   age) + `logging.prune_log_files(86400)` (mtime) run at startup and hourly via
   `Controller._events_pruner()`. `olt.log` now uses TimedRotatingFileHandler
@@ -253,42 +254,6 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 - Wants clean, futuristic, dynamic UI following the active Omarchy theme.
 - Prefers working plugin over model management for now.
 
-## Clipboard translation (in progress)
-- Feature: translate the Wayland clipboard to the opposite language on demand.
-- Non-pair text (e.g. French) → translate toward the user's own language
-  (`cfg.outgoing.language[:2]`).
-- Auto-clear: `[clipboard] clear_sec = 30` in config; clears only if the
-  clipboard still holds OUR translation (never wipes text the user copied in
-  the meantime). Verified live: es→en works, clear fires at 30s, and a
-  "contents changed" skip was observed correctly.
-- No clipboard history manager on this machine (no cliphist/copyq/clipman);
-  Wayland clipboard is single-slot, so "clear history" = `wl-copy --clear`.
-- `LibreTranslate.detect()` added (engines.py); `ClipboardConfig` added
-  (config.py); `clipboard_translate` + `_clipboard_read/_write/_clear_after`
-  added (controller.py); `olt-ctl clipboard_translate` wired; status exposes
-  `clipboard_clear_sec`.
-- NEXT: second BarIconButton in BarWidget.qml (clipboard glyph), ALWAYS
-  visible when the plugin is enabled (user decision — not gated on
-  serviceRunning). Left-click = translate clipboard to opposite language.
-  BarWidget.qml needs a status poll (it currently has none; only Panel.qml
-  polls). Tooltip feedback: "Translated → clipboard". Keep out of the speech
-  overlay.
-- DONE (commit 9bc478d): BarWidget.qml now has a Row with the main icon +
-  a clipboard icon, always visible. Left-click runs
-  `olt-ctl clipboard_translate` via a Process; tooltip "Translated →
-  clipboard" (or "failed") shown via `root.bar.showTooltip`, auto-hidden by a
-  2s Timer. qmllint clean; shell reloaded with no errors. NOTE: the widget
-  still has no status poll (not needed for the clipboard icon — it's always
-  shown), but add one if the icon ever needs serviceRunning gating.
-- Icon glyph: `\uf0ea` (Font Awesome `fa-paste`, a clipboard). First attempt
-  was `\uf328` = `nf-linux-openbsd` (the OpenBSD pufferfish logo) — wrong.
-  User chose to keep `fa-paste` over `md-clipboard_text`/`md-translate`/
-  `md-content_copy` (all verified present in JetBrainsMono Nerd Font).
-  Glyph-name lookup: `fontTools` + the font's cmap, or Nerd Fonts
-  `glyphnames.json` (raw.githubusercontent.com/ryanoasis/nerd-fonts/master).
-- FUTURE (backlog): image/screenshot clipboard translation (OCR or vision
-  model) — user wants to explore later, not now.
-
 ## Clipboard translation — DONE (text + image OCR)
 - Controller action `clipboard_translate`: reads Wayland clipboard, branches on
   content type, translates to the opposite en/es language, writes back via
@@ -299,8 +264,8 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   to `tesseract stdin stdout -l spa+eng --psm 6 --tessdata-dir <dir>`. KEY
   LESSON: asyncio subprocesses cannot pipe one child's stdout directly into
   another's stdin (a StreamReader has no `fileno`); materialize the bytes in
-  between. Verified live: ES image → EN text, EN image → ES text, text path
-  still works.
+  between. Verified live: ES image → EN text, EN image → ES text, JPEG + PNG
+  both work, text path still works.
 - Non-pair text (e.g. French) → translate toward the user's own language
   (`cfg.outgoing.language[:2]`).
 - Auto-clear: `[clipboard] clear_sec = 30`; clears only if the clipboard still
