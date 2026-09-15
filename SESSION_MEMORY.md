@@ -125,24 +125,32 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
     but `audio_processed` counts ALL audio since stream open (incl. minutes of
     gated zero-PCM), so the first refine grabs the whole 20s ring (mostly
     silence) → slow/wrong first refine. Symptom: absurd `asr_ms` (538s/989s/
-    1048s) in events. FIX: reset the processed-seconds baseline when the gate
-    opens (see Next up).
+    1048s) in events. FIXED (commit 4b6df8a): the pump tracks gate open/close
+    transitions as ABSOLUTE ring byte positions (`ring_base` compensates front
+    trimming) and `_snapshot_utterance_audio` slices exactly that window.
 14. **Engine warm-up** (user: warm at startup / plugin load): `--no-warmup`
     means both models compile Vulkan pipelines lazily on first real inference
-    → first refine ~2s vs ~1s warm. Plan: warm both engines right after
-    startup (short real-audio burst through the stream then `clear()`; one tiny
-    offline transcription) instead of re-enabling crash-prone `--warmup`.
+    → first refine ~2s vs ~1s warm. FIXED (commit 4b6df8a): `NemoASR.warm_stream`
+    (sine burst through a throwaway stream then `clear()`) + `warm_offline`
+    (one tiny transcription) run right after startup, before the incoming task.
+    Both log "pipeline compiled"; non-fatal on failure. Verified no SIGABRT.
 
 ## Next up (user's priority)
-- **Warm engines at startup** (in progress): after connect, send a short burst
-  of real audio through the streaming stream then `input_audio_buffer.clear()`,
-  and fire one tiny offline transcription, so both models compile Vulkan
-  pipelines before the first real clip. Avoids re-enabling `--warmup`.
-- **Fix first-final offline snapshot** (in progress): bound the offline
-  snapshot to the actual utterance by resetting the processed-seconds baseline
-  when the gate opens (and on stream start), so the first refine sends only
-  real speech, not 20s of silence.
-- Then: dig into gate↔endpointing interaction (2500ms EOU + gate mute).
+- **FIRST-PLAY DOESN'T POP UP (new, 2026-09-15)**: user reports the very first
+  clip played after boot sometimes produces NO card, but after Stop → Start it
+  works immediately and then all subsequent clips are good. Warm-up + snapshot
+  fixes are in but did NOT eliminate this. NOT YET INVESTIGATED. Hypotheses to
+  test: (a) the warm-up throwaway stream leaves the server's RNNT cache/lattice
+  in a state the first real stream inherits; (b) `_activation_ok()` or
+  `incoming()` startup race; (c) first `parec` monitor capture needs a moment
+  to sync; (d) first `.completed` final swallowed by a generation mismatch.
+  Gather journal + events around the first clip after a clean restart.
+- **Gate↔endpointing interaction** (2500ms EOU + gate mute): still to dig into.
+  User's latest real-world tests are good (below), so this is lower priority
+  than the first-play bug.
+- **User test results (2026-09-15, excellent)**: multiple daughter audio files
+  translated well; the 4-second clip (historically the hardest) came out 100%
+  correct on the most recent run. Full beginning + end of sentences captured.
 - FIX FIRST — incoming audio loss around finalization (bug, found in review):
   in `_incoming_once`, when `.completed` arrives the controller awaits NMT while
   the pump keeps pushing fresh audio into a stream whose results are never read,
