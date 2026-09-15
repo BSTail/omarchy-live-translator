@@ -134,20 +134,32 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
     (sine burst through a throwaway stream then `clear()`) + `warm_offline`
     (one tiny transcription) run right after startup, before the incoming task.
     Both log "pipeline compiled"; non-fatal on failure. Verified no SIGABRT.
+15. **Gen-orphaning bug** (commit 980b31e): the long-lived incoming stream
+    captured `gen = self._incoming_gen` once at start; `clear` (F12) and
+    `clear_logs` bumped the gen WITHOUT restarting the stream, so the stream
+    kept a stale gen and every subsequent final was dropped as "stale"
+    (symptom: Spanish draft rendered but no English translation). FIX: `clear`
+    and `clear_logs` now call `_restart_incoming()`. Verified: `clear` triggers
+    a fresh `incoming started` with the current gen.
 
 ## Next up (user's priority)
 - **FIRST-PLAY DOESN'T POP UP (new, 2026-09-15)**: user reports the very first
   clip played after boot sometimes produces NO card, but after Stop → Start it
   works immediately and then all subsequent clips are good. Warm-up + snapshot
-  fixes are in but did NOT eliminate this. NOT YET INVESTIGATED. Hypotheses to
-  test: (a) the warm-up throwaway stream leaves the server's RNNT cache/lattice
-  in a state the first real stream inherits; (b) `_activation_ok()` or
-  `incoming()` startup race; (c) first `parec` monitor capture needs a moment
-  to sync; (d) first `.completed` final swallowed by a generation mismatch.
-  Gather journal + events around the first clip after a clean restart.
+  + gen-orphaning fixes are in but did NOT eliminate this. NOT YET INVESTIGATED.
+  Hypotheses to test: (a) the warm-up throwaway stream leaves the server's
+  RNNT cache/lattice in a state the first real stream inherits; (b)
+  `_activation_ok()` or `incoming()` startup race; (c) first `parec` monitor
+  capture needs a moment to sync; (d) first `.completed` final swallowed by a
+  generation mismatch. Gather journal + events around the first clip after a
+  clean restart.
 - **Gate↔endpointing interaction** (2500ms EOU + gate mute): still to dig into.
   User's latest real-world tests are good (below), so this is lower priority
   than the first-play bug.
+- **Upstream NeMo endpointing findings** (issues #40/#41/#22): token-silence
+  EOU misfires mid-sentence + hard reset corrupts transcript; trailing
+  punctuation leaks into next final. USER SAYS: do NOT worry about these unless
+  we notice a real problem. Noted for reference only.
 - **User test results (2026-09-15, excellent)**: multiple daughter audio files
   translated well; the 4-second clip (historically the hardest) came out 100%
   correct on the most recent run. Full beginning + end of sentences captured.
