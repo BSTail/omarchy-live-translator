@@ -261,6 +261,57 @@ class NemoASR:
         await stream.send_json({"type": "session.update", "session": session})
         return stream
 
+    async def warm_stream(self, language: str) -> None:
+        """Compile the streaming model's Vulkan pipelines before first use.
+
+        `serve` runs with `--no-warmup` (the built-in warmup path is the one
+        that intermittently SIGABRTs), so the encoder's compute pipelines are
+        compiled lazily on the first real audio. Feeding a short burst of real
+        audio through a throwaway stream forces that compilation now, and the
+        buffer is cleared so no phantom transcript survives.
+        """
+        try:
+            stream = await self.connect_stream(language, endpointing_ms=1000)
+            # ~1.6s of a 440 Hz sine at a modest level: real PCM, not silence.
+            rate = 16000
+            dur = 1.6
+            n = int(rate * dur)
+            import math as _math
+
+            tone = bytearray()
+            for i in range(n):
+                s = int(12000.0 * _math.sin(2.0 * _math.pi * 440.0 * i / rate))
+                tone += struct.pack("<h", s)
+            await stream.send_audio(bytes(tone))
+            await stream.clear()
+            await stream.close()
+            log.info("streaming ASR warmed (pipeline compiled)")
+        except Exception as exc:
+            log.warning("streaming ASR warm-up failed (non-fatal): %s", exc)
+
+    async def warm_offline(self) -> None:
+        """Compile the offline model's Vulkan pipelines before first use.
+
+        Same rationale as `warm_stream`: `--no-warmup` defers pipeline
+        compilation to the first transcription, making the first refine ~2x
+        slower. One tiny transcription forces it now.
+        """
+        try:
+            if self.offline_proc is None or self.offline_proc.returncode is not None:
+                return
+            rate = 16000
+            n = int(rate * 0.5)
+            import math as _math
+
+            tone = bytearray()
+            for i in range(n):
+                s = int(12000.0 * _math.sin(2.0 * _math.pi * 440.0 * i / rate))
+                tone += struct.pack("<h", s)
+            await self.transcribe_offline(bytes(tone), "es")
+            log.info("offline ASR warmed (pipeline compiled)")
+        except Exception as exc:
+            log.warning("offline ASR warm-up failed (non-fatal): %s", exc)
+
 
 class ASRStream:
     """One realtime transcription session over the WebSocket."""

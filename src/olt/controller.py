@@ -643,6 +643,19 @@ class Controller:
         self._incoming_ring = bytearray()
         ring_cap = int(audio.RATE * 2 * lookback_ms / 1000)
         prev_processed_sec = 0.0
+        # Byte offsets (into `_incoming_ring`) bounding the current utterance.
+        # In gated mode these are set by the gate's open/close transitions so
+        # the offline snapshot contains exactly the speech (plus its trailing
+        # silence), NOT minutes of gated zero-PCM that preceded it. Without a
+        # gate (live-call mode) they stay 0 and the audio_processed delta is
+        # used instead.
+        utt_start = 0
+        utt_end = 0
+        # Absolute stream byte positions: `_incoming_ring` is trimmed from the
+        # front as it overflows, so offsets recorded as raw indices would shift.
+        # `ring_base` = bytes already trimmed off the front; a stored utterance
+        # offset is absolute (ring_base + index) and converted back on snapshot.
+        ring_base = 0
         # Silence gate is only meaningful in multimedia mode (continuous media
         # audio). In live-call mode audio flows unfiltered.
         gate = None
@@ -656,19 +669,31 @@ class Controller:
             )
         try:
             async def pump():
-                nonlocal captured_bytes
+                nonlocal captured_bytes, utt_start, utt_end, ring_base
                 try:
                     while True:
                         chunk = await cap.read_chunk(self.cfg.chunk_ms)
                         if not chunk:
                             break
                         if gate is not None:
+                            was_open = gate.open
                             chunk = gate.process(chunk, self.cfg.chunk_ms)
+                            if not was_open and gate.open:
+                                # Gate just opened: the utterance starts at the
+                                # preroll+chunk about to be appended.
+                                utt_start = ring_base + len(self._incoming_ring)
+                            elif was_open and not gate.open:
+                                # Gate just closed: the utterance (incl. its
+                                # trailing silence) ends here, before the zero
+                                # chunk about to be appended.
+                                utt_end = ring_base + len(self._incoming_ring)
                         await stream.send_audio(chunk)
                         if self.cfg.asr.offline_enabled:
                             self._incoming_ring.extend(chunk)
                             if len(self._incoming_ring) > ring_cap:
-                                del self._incoming_ring[: len(self._incoming_ring) - ring_cap]
+                                excess = len(self._incoming_ring) - ring_cap
+                                del self._incoming_ring[:excess]
+                                ring_base += excess
                         captured_bytes += len(chunk)
                 except (ConnectionResetError, OSError, asyncio.CancelledError):
                     # The socket can close when incoming is paused for TTS
@@ -694,9 +719,13 @@ class Controller:
                         utterance_audio = b""
                         if self.cfg.asr.offline_enabled:
                             utterance_audio = self._snapshot_utterance_audio(
-                                this_processed, prev_processed_sec
+                                this_processed, prev_processed_sec,
+                                utt_start, utt_end, ring_base,
                             )
                         prev_processed_sec = this_processed
+                        # Reset gate-tracked byte offsets for the next utterance.
+                        utt_start = 0
+                        utt_end = 0
                         if final:
                             # Translate off the event loop so the next
                             # utterance's deltas are consumed immediately.
@@ -726,32 +755,44 @@ class Controller:
                 self._incoming_card_id = None
 
     def _snapshot_utterance_audio(
-        self, this_processed_sec: float, prev_processed_sec: float
+        self,
+        this_processed_sec: float,
+        prev_processed_sec: float,
+        utt_start: int = 0,
+        utt_end: int = 0,
+        ring_base: int = 0,
     ) -> bytes:
         """Return the PCM16 for the utterance that just finalized, or b"".
 
-        The server's `audio_processed` is a stream-global high-water mark in
-        seconds, so consecutive finals bound the utterance length. We take that
-        many seconds (plus a small endpointing margin) from the tail of the
-        capture ring. Best-effort: on any mismatch the streaming translation
-        remains authoritative.
+        Prefers the gate-tracked byte bounds (`utt_start`/`utt_end`, absolute
+        positions) when the silence gate is active: those delimit exactly the
+        speech window (plus its trailing silence), ignoring any gated zero-PCM
+        before/after. Falls back to the server's `audio_processed` delta (a
+        stream-global high-water mark) when there is no gate. Best-effort: on
+        any mismatch the streaming translation remains authoritative.
         """
         ring = getattr(self, "_incoming_ring", None)
         if not ring:
             return b""
-        utt_len = max(this_processed_sec - prev_processed_sec, 0.0)
+        if utt_end > utt_start > 0:
+            lo = max(0, utt_start - ring_base)
+            hi = min(len(ring), utt_end - ring_base)
+            raw = bytes(ring[lo:hi])
+        else:
+            utt_len = max(this_processed_sec - prev_processed_sec, 0.0)
+            if utt_len < 0.3:
+                return b""
+            margin_sec = 0.5
+            nbytes = int((utt_len + margin_sec) * audio.RATE * 2)
+            nbytes = min(nbytes, len(ring))
+            if nbytes <= 0:
+                return b""
+            raw = bytes(ring[len(ring) - nbytes:])
         # Skip degenerate snapshots: an empty or sub-300ms utterance is not
         # worth an offline round-trip (and an empty WAV 500s the server).
-        if utt_len < 0.3:
+        if len(raw) < int(0.3 * audio.RATE * 2):
             return b""
-        # Small margin so trailing silence that triggered endpointing is not
-        # cut off; audio_processed already includes it, but the ring may lag.
-        margin_sec = 0.5
-        nbytes = int((utt_len + margin_sec) * audio.RATE * 2)
-        nbytes = min(nbytes, len(ring))
-        if nbytes <= 0:
-            return b""
-        return bytes(ring[len(ring) - nbytes:])
+        return raw
 
     async def _finalize_incoming(
         self,
@@ -1202,6 +1243,12 @@ class Controller:
         await self.start_overlay()
         self.start_control_server()
         self._apply_keep_awake()
+        # Warm both ASR engines before the first real clip so the first
+        # translation isn't slow (Vulkan pipelines compile lazily under
+        # --no-warmup). Non-fatal: failures are logged and skipped.
+        await self.asr.warm_stream(self.cfg.incoming.source_language)
+        if self.cfg.asr.offline_enabled:
+            await self.asr.warm_offline()
         if self.cfg.incoming.enabled:
             self.incoming_task = asyncio.create_task(self.incoming())
         asyncio.create_task(self._events_pruner())
