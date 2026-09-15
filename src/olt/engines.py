@@ -21,37 +21,47 @@ class LibreTranslate:
     def __init__(self, paths: PathsConfig):
         self.base = paths.libretranslate_url.rstrip("/")
 
-    async def translate(self, text: str, source: str, target: str) -> str:
-        payload = json.dumps({"q": text, "source": source, "target": target}).encode()
+    async def _post(self, endpoint: str, payload: dict, timeout: float = 20.0) -> dict:
+        """POST JSON to LibreTranslate with one retry on transient failure.
+
+        A single slow request (large text, a briefly busy service) should not
+        fail the whole translation, so we retry once after a short backoff.
+        """
+        body = json.dumps(payload).encode()
         req = urllib.request.Request(
-            f"{self.base}/translate",
-            data=payload,
+            f"{self.base}/{endpoint}",
+            data=body,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        try:
-            resp = await asyncio.to_thread(urllib.request.urlopen, req, timeout=20)
-        except Exception as exc:
-            log.error("LibreTranslate request failed: %s", exc)
-            raise
-        data = json.loads(resp.read().decode())
+        last_exc: Exception | None = None
+        for attempt in (1, 2):
+            try:
+                resp = await asyncio.to_thread(
+                    urllib.request.urlopen, req, timeout=timeout
+                )
+                return json.loads(resp.read().decode())
+            except Exception as exc:
+                last_exc = exc
+                if attempt == 1:
+                    log.warning("LibreTranslate %s failed (attempt 1): %s; retrying",
+                                endpoint, exc)
+                    await asyncio.sleep(0.5)
+        log.error("LibreTranslate %s failed: %s", endpoint, last_exc)
+        raise last_exc
+
+    async def translate(self, text: str, source: str, target: str) -> str:
+        data = await self._post(
+            "translate", {"q": text, "source": source, "target": target}
+        )
         return data["translatedText"]
 
     async def detect(self, text: str) -> str:
         """Return the detected language code (e.g. "en", "es"), or "" on failure."""
-        payload = json.dumps({"q": text}).encode()
-        req = urllib.request.Request(
-            f"{self.base}/detect",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
         try:
-            resp = await asyncio.to_thread(urllib.request.urlopen, req, timeout=20)
-        except Exception as exc:
-            log.error("LibreTranslate detect failed: %s", exc)
+            data = await self._post("detect", {"q": text})
+        except Exception:
             return ""
-        data = json.loads(resp.read().decode())
         if not data:
             return ""
         return data[0].get("language", "")
