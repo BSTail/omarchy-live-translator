@@ -202,6 +202,30 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   `omarchy-live-translator` naming (rename deferred — user said keep it simple).
 - User registered omatranslate.com — do NOT reference the dot-com anywhere yet.
 
+## Panel theming (2026-09-14)
+- Working: "OmaTranslate" title in theme accent; "Running" green / "Stopped" red
+  (theme `green`/`red` tokens read via a FileView on the current theme's
+  colors.toml — the shell's Color singleton only exposes foreground/accent/
+  urgent, so green/cyan are read directly); section headers themed:
+  OUTGOING=accent, INCOMING=cyan, GLOSSARY=green, ACTIVATION=accent,
+  DIAGNOSTICS=green (PanelSectionHeader accepts `foreground`).
+- REVERTED / not working (do NOT retry without a new approach):
+  1. Glow on the Start/Stop button — caused a duplicate "Stop" button artifact
+     and a clipped glow edge; removed.
+  2. Colored border on Start/Stop via a custom `ThemedButton.qml` — the
+     component failed to load ("Ui.Button - Ui is neither a type nor a
+     namespace"; inside a plugin file the type is just `Button`, not
+     `Ui.Button`), which broke the whole panel and hid the bar icon. Reverted.
+  3. Accent-colored selected chip text in ButtonGroup — `Button` paints selected
+     text via `Style.selectedStateColor()` = theme `selected-color` token
+     (bright foreground, not accent); overriding `_selectedColor` requires a
+     wrapper component, which is what failed in #2. Parked.
+- QML lessons: plugin files import `qs.Ui` but reference types unqualified
+  (`Button`, `Toggle`, `PanelSeparator`). `qmllint` is at `/usr/lib/qt6/bin/qmllint`
+  (not on PATH). Shell kit docs: `~/.agents/skills/omarchy/theming.md` +
+  `plugins.md`; kit source `/usr/share/omarchy/shell/Ui/*.qml` and
+  `/usr/share/omarchy/shell/Commons/{Color,Style,Border}.qml`.
+
 ## User preferences
 - Native English speaker; main direction en→es outgoing, es→en incoming.
 - Assume bi-directional works; assume Bluetooth/headphones need no echo pause.
