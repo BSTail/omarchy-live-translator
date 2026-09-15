@@ -149,14 +149,15 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   final: the server stops decoding until the stream is torn down. Reproduced
   in isolation (fresh NeMo server, no controller/gate/overlay) on BOTH the
   Vulkan and CPU backends, so it is upstream, not our code.
-- **The trigger is zero-PCM silence, not wire silence or small frames.**
-  Isolated CPU-server matrix (clip → 6s trailing silence → gap → clip):
-  wire-silent gaps up to 25s: both clips decode. 1ms/16ms/40ms/80ms zero-PCM
-  keepalive frames every 160ms: both clips decode. Full 160ms zero-PCM frames
-  (i.e. what the RMS gate emits while closed): gap ≥15s → second clip dies.
-  `input_audio_buffer.clear` during the gap does NOT help. Endpointing OFF
-  (no EOU) still decodes continuously, so the stall is tied to the
-  token-silence EOU path, not the base RNNT decoder.
+- **The trigger is FULL 160ms zero-PCM frames, not small frames or wire
+  silence.** Isolated CPU-server matrix (clip → 6s trailing silence → gap →
+  clip): wire-silent gaps ≤25s decode fine; 1ms zero-PCM keepalives decode fine
+  even at 60s (30/45/60s all pass); 16/40/80ms zero-PCM frames decode fine;
+  full 160ms zero-PCM frames (what the RMS gate emits while closed) at gap
+  ≥15s → the second clip dies. `input_audio_buffer.clear` does NOT recover it.
+  Endpointing OFF (no EOU) still decodes continuously through 60s of full
+  zero-PCM (hundreds of deltas), so the wedge is specific to the token-silence
+  EOU path, not the base cache-aware RNNT decoder.
 - **Upstream SIGABRT is the same family.** The Vulkan streaming server crashed
   at 18:04:50 with `GGML_ASSERT(ne3 == ne13) failed` at ggml-cpu.c:1270 inside
   `CacheAwareEncoder::encode` (mul_mat), matching the known intermittent
@@ -168,6 +169,11 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   for `ne3/ne13/GGML_ASSERT` returns nothing; idle/silence/stall search returns
   only unrelated issues (#40 token-silence EOU, #19 TTS DC, #8 converter).
   Filing a new upstream issue is warranted once we have a minimal repro.
+- **FILED upstream: https://github.com/NVIDIA/NeMo-Speech.cpp/issues/48**
+  ("Streaming RNNT wedges after sustained zero-PCM silence; Vulkan aborts with
+  GGML_ASSERT(ne3 == ne13)"). Includes the full gap matrix, the 60s 1ms
+  keepalive result, the endpointing-OFF control, coredump backtrace, and the
+  fire_eou/reset_utterance hypothesis. Awaiting maintainer response.
 - **Controller now self-heals.** `incoming()` calls `asr.restart()` on loop
   error (previously hot-looped ECONNREFUSED every 2s after a crash), and
   `NemoASR.restart()` was added. Deployed + verified: two post-restart clips
