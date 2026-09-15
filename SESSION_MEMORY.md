@@ -231,3 +231,29 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 - Assume bi-directional works; assume Bluetooth/headphones need no echo pause.
 - Wants clean, futuristic, dynamic UI following the active Omarchy theme.
 - Prefers working plugin over model management for now.
+
+## Clipboard translation (in progress)
+- Feature: translate the Wayland clipboard to the opposite language on demand.
+- Controller action `clipboard_translate` DONE + deployed + verified (commit
+  dd3645e): `wl-paste -n` → `LibreTranslate.detect()` → translate to the other
+  side of the en/es pair (es→en, en→es) → `wl-copy` → guarded 30s auto-clear.
+- Non-pair text (e.g. French) → translate toward the user's own language
+  (`cfg.outgoing.language[:2]`).
+- Auto-clear: `[clipboard] clear_sec = 30` in config; clears only if the
+  clipboard still holds OUR translation (never wipes text the user copied in
+  the meantime). Verified live: es→en works, clear fires at 30s, and a
+  "contents changed" skip was observed correctly.
+- No clipboard history manager on this machine (no cliphist/copyq/clipman);
+  Wayland clipboard is single-slot, so "clear history" = `wl-copy --clear`.
+- `LibreTranslate.detect()` added (engines.py); `ClipboardConfig` added
+  (config.py); `clipboard_translate` + `_clipboard_read/_write/_clear_after`
+  added (controller.py); `olt-ctl clipboard_translate` wired; status exposes
+  `clipboard_clear_sec`.
+- NEXT: second BarIconButton in BarWidget.qml (clipboard glyph), ALWAYS
+  visible when the plugin is enabled (user decision — not gated on
+  serviceRunning). Left-click = translate clipboard to opposite language.
+  BarWidget.qml needs a status poll (it currently has none; only Panel.qml
+  polls). Tooltip feedback: "Translated → clipboard". Keep out of the speech
+  overlay.
+- FUTURE (backlog): image/screenshot clipboard translation (OCR or vision
+  model) — user wants to explore later, not now.
