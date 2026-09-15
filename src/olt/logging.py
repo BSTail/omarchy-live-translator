@@ -57,10 +57,12 @@ def _build_logger(log_dir: Path | None, level: str) -> logging.Logger:
     if log_dir is not None:
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.handlers.RotatingFileHandler(
+            # Time-based rotation so the active log never holds more than a day
+            # of text; old backups are pruned by prune_log_files().
+            file_handler = logging.handlers.TimedRotatingFileHandler(
                 log_dir / "olt.log",
-                maxBytes=1_000_000,
-                backupCount=3,
+                when="midnight",
+                backupCount=1,
                 encoding="utf-8",
             )
             file_handler.setFormatter(fmt)
@@ -144,6 +146,37 @@ def prune_events(max_age_sec: float) -> int:
         return removed
     except OSError:
         return 0
+
+
+def prune_log_files(max_age_sec: float) -> int:
+    """Delete log files (olt.log*) older than `max_age_sec`.
+
+    Covers the rotated olt.log backups and any stray log files in the log
+    directory. Returns the number of files removed. Never raises.
+    """
+    global _logger
+    removed = 0
+    log_dir = None
+    for handler in getattr(_logger, "handlers", []) or []:
+        base = getattr(handler, "baseFilename", None)
+        if base and base.endswith("olt.log"):
+            log_dir = Path(base).parent
+            break
+    if log_dir is None:
+        return 0
+    cutoff = time.time() - max_age_sec
+    try:
+        for path in log_dir.glob("olt.log*"):
+            if path.is_file():
+                try:
+                    if path.stat().st_mtime < cutoff:
+                        path.unlink()
+                        removed += 1
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return removed
 
 
 def log_uncaught(exc_type, exc_value, exc_tb) -> None:

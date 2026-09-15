@@ -356,9 +356,15 @@ class Controller:
             "direction": f"{src or 'auto'}→{tgt}",
             "src_len": len(text),
             "tgt_len": len(translated),
+            **({"source": text, "target": translated}
+               if self.cfg.clipboard.log_text else {}),
         })
-        log.info("clipboard translated (%s→%s): %d chars → %d chars",
-                 src or "auto", tgt, len(text), len(translated))
+        if self.cfg.clipboard.log_text:
+            log.info("clipboard translated (%s→%s): %r → %r",
+                     src or "auto", tgt, text, translated)
+        else:
+            log.info("clipboard translated (%s→%s): %d chars → %d chars",
+                     src or "auto", tgt, len(text), len(translated))
         if self.cfg.clipboard.clear_sec > 0:
             asyncio.create_task(
                 self._clipboard_clear_after(self.cfg.clipboard.clear_sec, translated)
@@ -1010,15 +1016,18 @@ class Controller:
     # -- lifecycle ---------------------------------------------------------
 
     async def _events_pruner(self) -> None:
-        """Periodically drop events older than the retention window."""
+        """Periodically drop events and log files older than the retention window."""
         while True:
             await asyncio.sleep(3600)
             try:
                 removed = logging.prune_events(24 * 3600)
                 if removed:
                     log.info("pruned %d event(s) older than 24h", removed)
+                removed_logs = logging.prune_log_files(24 * 3600)
+                if removed_logs:
+                    log.info("pruned %d log file(s) older than 24h", removed_logs)
             except Exception as exc:  # never kill the pruner
-                log.error("event pruning failed: %s", exc)
+                log.error("log pruning failed: %s", exc)
 
     async def run(self) -> None:
         self.loop = asyncio.get_running_loop()
@@ -1027,8 +1036,11 @@ class Controller:
             removed = logging.prune_events(24 * 3600)
             if removed:
                 log.info("pruned %d event(s) older than 24h at startup", removed)
+            removed_logs = logging.prune_log_files(24 * 3600)
+            if removed_logs:
+                log.info("pruned %d log file(s) older than 24h at startup", removed_logs)
         except Exception as exc:
-            log.error("startup event pruning failed: %s", exc)
+            log.error("startup log pruning failed: %s", exc)
         await self.asr.start()
         if self.cfg.asr.offline_enabled:
             await self.asr.start_offline()

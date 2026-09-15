@@ -93,6 +93,9 @@ class ClipboardConfig:
     # fires if the clipboard still holds our translation (never wiping text the
     # user copied in the meantime). 0 disables the auto-clear.
     clear_sec: int = 30
+    # Log clipboard source/target text to events.jsonl. Default off for
+    # privacy; enable only while debugging.
+    log_text: bool = False
     # Image translation via OCR: when the clipboard holds an image, run it
     # through tesseract and translate the recognized text (elsewhere the target
     # language is chosen by detection, same as text).
@@ -239,6 +242,7 @@ def load(path: str | None = None) -> Config:
 
     clp = section("clipboard")
     cfg.clipboard.clear_sec = int(clp.get("clear_sec", cfg.clipboard.clear_sec))
+    cfg.clipboard.log_text = bool(clp.get("log_text", cfg.clipboard.log_text))
     cfg.clipboard.ocr_enabled = bool(clp.get("ocr_enabled", cfg.clipboard.ocr_enabled))
     cfg.clipboard.ocr_psm = int(clp.get("ocr_psm", cfg.clipboard.ocr_psm))
     cfg.clipboard.ocr_lang = clp.get("ocr_lang", cfg.clipboard.ocr_lang)
