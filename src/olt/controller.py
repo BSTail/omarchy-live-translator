@@ -126,6 +126,11 @@ class Controller:
         # Background finalizers capture it and drop their result if it no longer
         # matches, so stale translations can't resurrect a cleared card.
         self._incoming_gen = 0
+        # Settings are applied serially on a queue (each incoming stream
+        # restart is expensive and must not overlap). This also coalesces a
+        # slider drag into the latest value instead of one restart per notch.
+        self._settings_lock = asyncio.Lock()
+        self._restart_lock = asyncio.Lock()
 
     # -- overlay -----------------------------------------------------------
 
@@ -870,11 +875,16 @@ class Controller:
 
             def _reply(self, status, obj):
                 data = json.dumps(obj).encode()
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
+                try:
+                    self.send_response(status)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    # The client (curl --max-time, panel poll, hotkey) may have
+                    # gone away mid-reply; nothing to do.
+                    pass
 
             def log_message(self, *args):
                 pass
@@ -925,6 +935,10 @@ class Controller:
             log.warning("unknown action: %s", action)
 
     async def _apply_settings(self, settings: dict) -> None:
+        async with self._settings_lock:
+            await self._apply_settings_locked(settings)
+
+    async def _apply_settings_locked(self, settings: dict) -> None:
         if "incoming_enabled" in settings:
             want = bool(settings["incoming_enabled"])
             have = self.incoming_task is not None and not self.incoming_task.done()
@@ -1054,16 +1068,24 @@ class Controller:
             log.info("clipboard text logging set to %s", self.cfg.clipboard.log_text)
 
     async def _restart_incoming(self) -> None:
-        """Reconnect the incoming stream so stream-level settings take effect."""
-        if self.incoming_task is not None and not self.incoming_task.done():
-            self.incoming_task.cancel()
-            self._incoming_gen += 1
-            try:
-                await self.incoming_task
-            except asyncio.CancelledError:
-                pass
-        if self.cfg.incoming.enabled:
-            self.incoming_task = asyncio.create_task(self.incoming())
+        """Reconnect the incoming stream so stream-level settings take effect.
+
+        Serialized on `_restart_lock`: the old stream must fully tear down
+        (capture stop + WebSocket close) before a new one starts, otherwise
+        the old pump's `send_audio` races the new stream's teardown and can
+        abort the ASR server (the SIGABRT we saw while dragging the gate
+        slider). The lock also coalesces rapid-fire setting changes.
+        """
+        async with self._restart_lock:
+            if self.incoming_task is not None and not self.incoming_task.done():
+                self.incoming_task.cancel()
+                self._incoming_gen += 1
+                try:
+                    await self.incoming_task
+                except asyncio.CancelledError:
+                    pass
+            if self.cfg.incoming.enabled:
+                self.incoming_task = asyncio.create_task(self.incoming())
 
     def _apply_keep_awake(self) -> None:
         """Toggle the Omarchy stay-awake flag that suppresses idle/lock."""
