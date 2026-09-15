@@ -108,6 +108,44 @@ def log_event(event: dict) -> None:
         pass
 
 
+def prune_events(max_age_sec: float) -> int:
+    """Drop events older than `max_age_sec` from events.jsonl.
+
+    Returns the number of lines removed. Never raises. Called at startup and
+    periodically so private transcripts cannot accumulate beyond the retention
+    window.
+    """
+    global _events_path
+    if _events_path is None:
+        return 0
+    try:
+        with _events_lock:
+            if not _events_path.exists():
+                return 0
+            lines = _events_path.read_text(encoding="utf-8").splitlines()
+            cutoff = time.time() - max_age_sec
+            kept: list[str] = []
+            removed = 0
+            for line in lines:
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    kept.append(line)
+                    continue
+                ts = ev.get("ts")
+                if isinstance(ts, (int, float)) and ts < cutoff:
+                    removed += 1
+                else:
+                    kept.append(line)
+            if removed:
+                _events_path.write_text(
+                    "\n".join(kept) + ("\n" if kept else ""), encoding="utf-8"
+                )
+        return removed
+    except OSError:
+        return 0
+
+
 def log_uncaught(exc_type, exc_value, exc_tb) -> None:
     """sys.excepthook: report uncaught exceptions with a full traceback."""
     if issubclass(exc_type, KeyboardInterrupt):

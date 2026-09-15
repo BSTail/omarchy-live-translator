@@ -547,8 +547,8 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Record audio captures"
-            description: "Save incoming/outgoing audio to WAV files for waveform analysis (testing only)"
+            label: "Save all audio transcripts"
+            description: "Store full transcript text and audio in logs/WAVs (for debugging). OFF keeps only timing metadata for privacy."
             checked: root.debugCapture
             foreground: root.bar.foreground
             accent: Color.accent

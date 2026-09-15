@@ -214,15 +214,16 @@ class Controller:
             )
             return
         nmt_ms = (time.monotonic() - t_nmt0) * 1000
-        log.info("outgoing translated (%s→%s): %r → %r",
-                 source_lang[:2], target, text, translated)
+        log.info("outgoing translated (%s→%s): %d chars → %d chars",
+                 source_lang[:2], target, len(text), len(translated))
         logging.log_event({
             "kind": "translation",
             "direction": f"{source_lang[:2]}→{target}",
             "card": card_id,
-            "source": text,
-            "target": translated,
+            "src_len": len(text),
+            "tgt_len": len(translated),
             "nmt_ms": round(nmt_ms, 1),
+            **({"source": text, "target": translated} if self.cfg.debug_capture else {}),
         })
         self.overlay_send(
             {"cmd": "card", "id": card_id, "direction": "out",
@@ -260,9 +261,9 @@ class Controller:
             "kind": "tts",
             "card": card["id"],
             "target_lang": card["target_lang"],
-            "text": card["target"],
             "tts_ms": round(tts_ms, 1),
             "destination": self.cfg.outgoing.output_destination,
+            **({"text": card["target"]} if self.cfg.debug_capture else {}),
         })
         # When playing through speakers, the monitor (incoming capture) hears
         # our own TTS and would re-translate it. Pause incoming for the
@@ -353,11 +354,11 @@ class Controller:
         logging.log_event({
             "kind": "clipboard",
             "direction": f"{src or 'auto'}→{tgt}",
-            "source": text,
-            "target": translated,
+            "src_len": len(text),
+            "tgt_len": len(translated),
         })
-        log.info("clipboard translated (%s→%s): %r → %r",
-                 src or "auto", tgt, text, translated)
+        log.info("clipboard translated (%s→%s): %d chars → %d chars",
+                 src or "auto", tgt, len(text), len(translated))
         if self.cfg.clipboard.clear_sec > 0:
             asyncio.create_task(
                 self._clipboard_clear_after(self.cfg.clipboard.clear_sec, translated)
@@ -668,13 +669,15 @@ class Controller:
             "kind": "incoming",
             "direction": f"{src}→{tgt}",
             "card": card_id,
-            "source": final,
-            "target": translated,
+            "src_len": len(final),
+            "tgt_len": len(translated),
             "asr_ms": asr_ms,
             "nmt_ms": round(nmt_ms, 1),
             "multimedia": self.cfg.incoming.multimedia,
+            **({"source": final, "target": translated} if self.cfg.debug_capture else {}),
         })
-        log.info("incoming translated (%s→%s): %r → %r", src, tgt, final, translated)
+        log.info("incoming translated (%s→%s): %d chars → %d chars",
+                 src, tgt, len(final), len(translated))
         self.overlay_send(
             {"cmd": "card", "id": card_id, "direction": "in",
              "source": final, "target": translated, "state": "incoming"}
@@ -719,11 +722,13 @@ class Controller:
             "kind": "incoming_refine",
             "direction": f"{src}→{tgt}",
             "card": card_id,
-            "source": cleaned,
-            "target": refined_translated,
+            "src_len": len(cleaned),
+            "tgt_len": len(refined_translated),
+            **({"source": cleaned, "target": refined_translated}
+               if self.cfg.debug_capture else {}),
         })
-        log.info("incoming refined (%s→%s): %r → %r", src, tgt, cleaned,
-                 refined_translated)
+        log.info("incoming refined (%s→%s): %d chars → %d chars", src, tgt,
+                 len(cleaned), len(refined_translated))
         self.overlay_send(
             {"cmd": "card", "id": card_id, "direction": "in",
              "source": cleaned, "target": refined_translated, "state": "incoming"}
@@ -1004,9 +1009,26 @@ class Controller:
 
     # -- lifecycle ---------------------------------------------------------
 
+    async def _events_pruner(self) -> None:
+        """Periodically drop events older than the retention window."""
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                removed = logging.prune_events(24 * 3600)
+                if removed:
+                    log.info("pruned %d event(s) older than 24h", removed)
+            except Exception as exc:  # never kill the pruner
+                log.error("event pruning failed: %s", exc)
+
     async def run(self) -> None:
         self.loop = asyncio.get_running_loop()
         audio.prune_debug_dir_startup(self.cfg)
+        try:
+            removed = logging.prune_events(24 * 3600)
+            if removed:
+                log.info("pruned %d event(s) older than 24h at startup", removed)
+        except Exception as exc:
+            log.error("startup event pruning failed: %s", exc)
         await self.asr.start()
         if self.cfg.asr.offline_enabled:
             await self.asr.start_offline()
@@ -1015,6 +1037,7 @@ class Controller:
         self._apply_keep_awake()
         if self.cfg.incoming.enabled:
             self.incoming_task = asyncio.create_task(self.incoming())
+        asyncio.create_task(self._events_pruner())
         log.info("controller running; press Ctrl-C to stop")
         try:
             await asyncio.Event().wait()
