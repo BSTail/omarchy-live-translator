@@ -1,4 +1,6 @@
 import QtQuick
+import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -40,8 +42,8 @@ BarWidget {
   }
 
   visible: panelLoader.item && panelLoader.item.label !== ""
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
+  implicitWidth: row.implicitWidth
+  implicitHeight: row.implicitHeight
 
   onBarChanged: injectPanel()
   onSettingsChanged: injectPanel()
@@ -57,18 +59,57 @@ BarWidget {
     }
   }
 
-  BarIconButton {
-    id: button
+  Row {
+    id: row
     anchors.fill: parent
-    bar: root.bar
-    text: panelLoader.item ? panelLoader.item.label : ""
-    slotSize: Style.bar.statusSlot
-    tooltipText: "OmaTranslate"
+    spacing: Style.space(2)
 
-    onPressed: function(b) {
-      if (!root.bar) return
-      if (b === Qt.RightButton) root.refresh()
-      else root.togglePanel()
+    BarIconButton {
+      id: button
+      bar: root.bar
+      text: panelLoader.item ? panelLoader.item.label : ""
+      slotSize: Style.bar.statusSlot
+      tooltipText: "OmaTranslate"
+
+      onPressed: function(b) {
+        if (!root.bar) return
+        if (b === Qt.RightButton) root.refresh()
+        else root.togglePanel()
+      }
     }
+
+    BarIconButton {
+      id: clipButton
+      bar: root.bar
+      text: "\uf328"
+      slotSize: Style.bar.statusSlot
+      tooltipText: "Translate clipboard to the other language"
+
+      onPressed: function(b) {
+        if (b !== Qt.LeftButton) return
+        clipProc.running = false
+        clipProc.running = true
+      }
+    }
+  }
+
+  Process {
+    id: clipProc
+    command: ["olt-ctl", "clipboard_translate"]
+    onExited: {
+      if (!root.bar) return
+      if (exitCode === 0) {
+        root.bar.showTooltip(clipButton, "Translated → clipboard")
+      } else {
+        root.bar.showTooltip(clipButton, "Clipboard translate failed")
+      }
+      clipTimer.restart()
+    }
+  }
+
+  Timer {
+    id: clipTimer
+    interval: 2000
+    onTriggered: if (root.bar) root.bar.hideTooltip(clipButton)
   }
 }
