@@ -234,9 +234,6 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 
 ## Clipboard translation (in progress)
 - Feature: translate the Wayland clipboard to the opposite language on demand.
-- Controller action `clipboard_translate` DONE + deployed + verified (commit
-  dd3645e): `wl-paste -n` → `LibreTranslate.detect()` → translate to the other
-  side of the en/es pair (es→en, en→es) → `wl-copy` → guarded 30s auto-clear.
 - Non-pair text (e.g. French) → translate toward the user's own language
   (`cfg.outgoing.language[:2]`).
 - Auto-clear: `[clipboard] clear_sec = 30` in config; clears only if the
@@ -270,3 +267,36 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   `glyphnames.json` (raw.githubusercontent.com/ryanoasis/nerd-fonts/master).
 - FUTURE (backlog): image/screenshot clipboard translation (OCR or vision
   model) — user wants to explore later, not now.
+
+## Clipboard translation — DONE (text + image OCR)
+- Controller action `clipboard_translate`: reads Wayland clipboard, branches on
+  content type, translates to the opposite en/es language, writes back via
+  `wl-copy`, and schedules a guarded 30s auto-clear.
+- Text path: `wl-paste -n` → `LibreTranslate.detect()` → translate → `wl-copy`.
+- Image path (commit 50040d4): `wl-paste --list-types` detects `image/*`;
+  `_clipboard_ocr()` reads the image bytes fully into memory, then feeds them
+  to `tesseract stdin stdout -l spa+eng --psm 6 --tessdata-dir <dir>`. KEY
+  LESSON: asyncio subprocesses cannot pipe one child's stdout directly into
+  another's stdin (a StreamReader has no `fileno`); materialize the bytes in
+  between. Verified live: ES image → EN text, EN image → ES text, text path
+  still works.
+- Non-pair text (e.g. French) → translate toward the user's own language
+  (`cfg.outgoing.language[:2]`).
+- Auto-clear: `[clipboard] clear_sec = 30`; clears only if the clipboard still
+  holds OUR translation (never wipes text the user copied in the meantime).
+- No clipboard history manager on this machine (no cliphist/copyq/clipman);
+  Wayland clipboard is single-slot, so "clear history" = `wl-copy --clear`.
+- OCR config: `[clipboard] ocr_enabled/ocr_psm/ocr_lang/tessdata_dir`.
+  Tessdata shipped at `~/.local/share/omarchy-live-translator/tessdata/`
+  (eng + spa traineddata; no root needed). `spa.traineddata` is from
+  tesseract-ocr/tessdata_fast (2.3 MB).
+- `LibreTranslate.detect()` added (engines.py); `ClipboardConfig` added
+  (config.py); status exposes `clipboard_clear_sec` and `clipboard_ocr`.
+- Bar icon: second BarIconButton (glyph `\uf0ea` = Font Awesome `fa-paste`),
+  always visible; left-click runs `olt-ctl clipboard_translate`; tooltip
+  "Translated → clipboard" (or "failed") via `root.bar.showTooltip`, hidden by
+  a 2s Timer. First glyph attempt `\uf328` was the OpenBSD pufferfish logo —
+  wrong. Glyph lookup: fontTools cmap or Nerd Fonts `glyphnames.json`.
+- BACK BURNER: LM Studio vision translation (user said later). Noted as a
+  possible future trade-off: Google Translate image API (one image, minimal
+  privacy loss) — but staying fully local for now.
