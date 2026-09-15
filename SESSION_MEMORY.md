@@ -104,9 +104,46 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
    errors logged.
 10. Glossary phrases: Matt/Mat/Mac/Max/amat/mc/mcway, Mattacito, Maxacito,
     Danna (cousin), Roblox/Robus/Roblo/robla.
+11. **Silence gate** (commit d30333a): `[incoming] gate_*` config; `SilenceGate`
+    class in controller.py mutes the monitor (zero PCM) when RMS stays below
+    `gate_close_rms` for `gate_close_ms`, reopens above `gate_open_rms` for
+    `gate_open_ms`, with preroll buffer to avoid clipping word onsets. Active
+    ONLY in multimedia mode (live calls flow unfiltered). Panel "Ignore silence"
+    toggle + "Minimum speech level" slider (visible only when multimedia ON).
+    `multimedia_endpointing_ms` 1600 → 2500 (fewer mid-pause splits).
+12. **Nemo SIGABRT on rapid slider drag** (commit 9afbbb6): dragging the gate
+    slider fired one incoming restart per notch; the old pump's `send_audio`
+    raced the new stream teardown and aborted the ASR server
+    (`GGML_ASSERT ne3==ne13`). FIX: `_apply_settings` runs under
+    `_settings_lock` and `_restart_incoming` under `_restart_lock` (old stream
+    fully tears down before the new one starts; slider drags coalesce). Also
+    `_reply` now swallows BrokenPipeError/ConnectionResetError (panel poll with
+    `--max-time` was disconnecting mid-response). Verified: 7 rapid slider
+    changes, no abort.
+13. **First-final offline snapshot bug** (found 2026-09-15): `_snapshot_utterance_audio`
+    uses `audio_processed` delta vs `prev_processed_sec=0.0` on the first final,
+    but `audio_processed` counts ALL audio since stream open (incl. minutes of
+    gated zero-PCM), so the first refine grabs the whole 20s ring (mostly
+    silence) → slow/wrong first refine. Symptom: absurd `asr_ms` (538s/989s/
+    1048s) in events. FIX: reset the processed-seconds baseline when the gate
+    opens (see Next up).
+14. **Engine warm-up** (user: warm at startup / plugin load): `--no-warmup`
+    means both models compile Vulkan pipelines lazily on first real inference
+    → first refine ~2s vs ~1s warm. Plan: warm both engines right after
+    startup (short real-audio burst through the stream then `clear()`; one tiny
+    offline transcription) instead of re-enabling crash-prone `--warmup`.
 
 ## Next up (user's priority)
-- **FIX FIRST — incoming audio loss around finalization (bug, found in review)**:
+- **Warm engines at startup** (in progress): after connect, send a short burst
+  of real audio through the streaming stream then `input_audio_buffer.clear()`,
+  and fire one tiny offline transcription, so both models compile Vulkan
+  pipelines before the first real clip. Avoids re-enabling `--warmup`.
+- **Fix first-final offline snapshot** (in progress): bound the offline
+  snapshot to the actual utterance by resetting the processed-seconds baseline
+  when the gate opens (and on stream start), so the first refine sends only
+  real speech, not 20s of silence.
+- Then: dig into gate↔endpointing interaction (2500ms EOU + gate mute).
+- FIX FIRST — incoming audio loss around finalization (bug, found in review):
   in `_incoming_once`, when `.completed` arrives the controller awaits NMT while
   the pump keeps pushing fresh audio into a stream whose results are never read,
   then tears down capture and reopens it → audio spoken during translation is
@@ -151,6 +188,9 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   low. DISABLED while an active call is happening (user confirmed). Gating must
   not starve ASR of trailing silence (or endpointing never completes); call
   detection needs explicit design (`media.role=Communication` + manual override).
+  IMPLEMENTED as the silence gate (multimedia-only, default ON) — see Last
+  completed tasks #11. Live-call mode (multimedia OFF) flows unfiltered, which
+  satisfies "disabled during calls".
 - **Evaluate a higher-accuracy ASR model**: Parakeet TDT 0.6B v3 pulled + timed
   (Vulkan q8_0): preliminary difflib WER 64.4%/34.8% vs Nemotron 83.1%/45.5%;
   15 s file transcription ~1.1 s vs ~4.3 s (both incl. subprocess startup).
