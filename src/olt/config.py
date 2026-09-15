@@ -93,6 +93,20 @@ class ClipboardConfig:
     # fires if the clipboard still holds our translation (never wiping text the
     # user copied in the meantime). 0 disables the auto-clear.
     clear_sec: int = 30
+    # Image translation via OCR: when the clipboard holds an image, run it
+    # through tesseract and translate the recognized text (elsewhere the target
+    # language is chosen by detection, same as text).
+    ocr_enabled: bool = True
+    # Tesseract "psm" (page segmentation mode) and language combo. 6 = assume a
+    # uniform block of text (good for screenshots/documents); 3 = fully
+    # automatic (slower, better for photos). Languages are matched against the
+    # en/es pair, so "spa+eng" covers our use case.
+    ocr_psm: int = 6
+    ocr_lang: str = "spa+eng"
+    # Directory the OCR language data is read from. Ships with spa+eng
+    # traineddata under the plugin's own data dir (no root needed to drop them
+    # into /usr/share/tessdata).
+    tessdata_dir: str = str(Path.home() / ".local" / "share" / "omarchy-live-translator" / "tessdata")
 
 
 @dataclass
@@ -225,6 +239,12 @@ def load(path: str | None = None) -> Config:
 
     clp = section("clipboard")
     cfg.clipboard.clear_sec = int(clp.get("clear_sec", cfg.clipboard.clear_sec))
+    cfg.clipboard.ocr_enabled = bool(clp.get("ocr_enabled", cfg.clipboard.ocr_enabled))
+    cfg.clipboard.ocr_psm = int(clp.get("ocr_psm", cfg.clipboard.ocr_psm))
+    cfg.clipboard.ocr_lang = clp.get("ocr_lang", cfg.clipboard.ocr_lang)
+    cfg.clipboard.tessdata_dir = _expand(
+        clp.get("tessdata_dir", cfg.clipboard.tessdata_dir)
+    )
 
     cfg.control_port = data.get("control_port", cfg.control_port)
     cfg.log_dir = _expand(data.get("log_dir", cfg.log_dir))

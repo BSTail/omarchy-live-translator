@@ -317,15 +317,22 @@ class Controller:
     async def clipboard_translate(self) -> None:
         """Translate the current Wayland clipboard to the opposite language.
 
-        Reads the clipboard with wl-paste, detects the language, translates to
-        the other side of the en/es pair, writes the result back with wl-copy,
-        and schedules a guarded auto-clear so the translated text does not
-        linger in the clipboard.
+        Reads the clipboard, branching on content type: text is translated
+        directly; an image is OCR'd with tesseract and the recognized text is
+        translated. The result is written back with wl-copy and a guarded
+        auto-clear removes it shortly after so translated text does not linger.
         """
-        text = await self._clipboard_read()
-        if not text:
-            log.info("clipboard translate: clipboard is empty or non-text")
-            return
+        has_image = await self._clipboard_has_image()
+        if has_image and self.cfg.clipboard.ocr_enabled:
+            text = await self._clipboard_ocr()
+            if not text:
+                log.info("clipboard translate: OCR found no text in the image")
+                return
+        else:
+            text = await self._clipboard_read()
+            if not text:
+                log.info("clipboard translate: clipboard is empty or non-text")
+                return
         src = await self.nmt.detect(text)
         if src not in ("en", "es"):
             # Foreign text: translate toward the user's own language.
@@ -382,6 +389,64 @@ class Controller:
             await asyncio.wait_for(proc.communicate(input=text.encode()), timeout=10)
         except (OSError, asyncio.TimeoutError) as exc:
             log.error("wl-copy failed: %s", exc)
+
+    async def _clipboard_types(self) -> list[str]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "wl-paste", "--list-types",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        except (OSError, asyncio.TimeoutError) as exc:
+            log.error("wl-paste --list-types failed: %s", exc)
+            return []
+        if proc.returncode != 0:
+            return []
+        return out.decode(errors="replace").splitlines()
+
+    async def _clipboard_has_image(self) -> bool:
+        types = await self._clipboard_types()
+        return any(t.startswith("image/") for t in types)
+
+    async def _clipboard_ocr(self) -> str:
+        """OCR the clipboard image with tesseract and return the text.
+
+        The image is read fully into memory first (a clipboard image is small)
+        and then handed to tesseract on stdin. We cannot pipe one subprocess's
+        stdout directly into another's stdin with asyncio subprocesses (a
+        StreamReader has no fileno), so we materialize the bytes in between.
+        """
+        try:
+            paste = await asyncio.create_subprocess_exec(
+                "wl-paste", "--type", "image/png",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            img, _ = await asyncio.wait_for(paste.communicate(), timeout=10)
+        except (OSError, asyncio.TimeoutError) as exc:
+            log.error("wl-paste (image) failed: %s", exc)
+            return ""
+        if paste.returncode != 0 or not img:
+            log.info("clipboard translate: no image data")
+            return ""
+        try:
+            ocr = await asyncio.create_subprocess_exec(
+                "tesseract", "stdin", "stdout",
+                "-l", self.cfg.clipboard.ocr_lang,
+                "--psm", str(self.cfg.clipboard.ocr_psm),
+                "--tessdata-dir", self.cfg.clipboard.tessdata_dir,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            out, err = await asyncio.wait_for(ocr.communicate(input=img), timeout=30)
+        except (OSError, asyncio.TimeoutError) as exc:
+            log.error("tesseract failed: %s", exc)
+            return ""
+        if err:
+            log.warning("tesseract: %s", err.decode(errors="replace").strip())
+        return out.decode(errors="replace").strip()
 
     async def _clipboard_clear_after(self, delay_s: int, expected: str) -> None:
         await asyncio.sleep(delay_s)
@@ -932,6 +997,7 @@ class Controller:
             "keep_awake": self.cfg.keep_awake,
             "two_tier": self.cfg.asr.offline_enabled,
             "clipboard_clear_sec": self.cfg.clipboard.clear_sec,
+            "clipboard_ocr": self.cfg.clipboard.ocr_enabled,
         }
 
     # -- lifecycle ---------------------------------------------------------
