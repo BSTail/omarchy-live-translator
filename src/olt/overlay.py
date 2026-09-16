@@ -26,9 +26,10 @@ import sys
 
 import gi
 
+gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
-from gi.repository import GLib, Gtk, Gtk4LayerShell  # noqa: E402
+from gi.repository import Gdk, GLib, Gtk, Gtk4LayerShell  # noqa: E402
 
 from .theme import border_gradient_css, load_theme
 
@@ -175,25 +176,46 @@ class OverlayApp:
         # Hidden until the first card appears (e.g. F10 press).
         self.window.set_visible(False)
 
+    def _monitor_size(self):
+        """Return (width, height) of the monitor the overlay is on, or None.
+
+        Gtk4LayerShell.get_monitor() returns None for this window (the layer
+        surface is created by the compositor, not Gdk), so resolve the monitor
+        from the window's Wayland surface via Gdk instead, falling back to the
+        layer-shell API.
+        """
+        try:
+            surface = self.window.get_surface()
+            if surface is not None:
+                display = Gdk.Display.get_default()
+                if display is not None:
+                    monitor = display.get_monitor_at_surface(surface)
+                    if monitor is not None:
+                        geo = monitor.get_geometry()
+                        return (geo.width, geo.height)
+        except Exception:
+            pass
+        try:
+            monitor = Gtk4LayerShell.get_monitor(self.window)
+            if monitor is not None:
+                geo = monitor.get_geometry()
+                return (geo.width, geo.height)
+        except Exception:
+            pass
+        return None
+
     def _relayout(self) -> None:
         """Cap the panel at the monitor height so content scrolls instead of
         overflowing the screen. The ScrolledWindow reports its natural height
         as min(content, max), so the window grows with content up to the cap."""
-        try:
-            monitor = Gtk4LayerShell.get_monitor(self.window)
-            if monitor is None:
-                return
-            geo = monitor.get_geometry()
-            # 12px top + 12px bottom layer margins + card padding/border +
-            # hint label. The window is top-anchored, so its height is bounded
-            # by the monitor height below it.
-            max_h = max(120, geo.height - 48)
-            self.scroll.set_max_content_height(max_h)
-            # Newest is prepended at the top; keep it visible.
-            adj = self.scroll.get_vadjustment()
-            GLib.idle_add(adj.set_value, 0)
-        except Exception:
-            pass
+        size = self._monitor_size()
+        if size is None:
+            return
+        max_h = max(120, size[1] - 48)
+        self.scroll.set_max_content_height(max_h)
+        # Newest is prepended at the top; keep it visible.
+        adj = self.scroll.get_vadjustment()
+        GLib.idle_add(adj.set_value, 0)
 
     def _apply_history(self) -> None:
         """Show only the newest card, or all cards (scrollable history).
@@ -262,6 +284,10 @@ class OverlayApp:
             self._shown.remove(card_id)
             self._shown.insert(0, card_id)
             self._update_visibility()
+            # Mutating label text in place does not queue a resize, so the
+            # window keeps its old height and clips the new content. Force a
+            # re-layout so the window height tracks the updated text.
+            self.window.queue_resize()
             self._relayout()
             return
 
