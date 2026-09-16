@@ -285,9 +285,11 @@ class OverlayApp:
             self._shown.insert(0, card_id)
             self._update_visibility()
             # Mutating label text in place does not queue a resize, so the
-            # window keeps its old height and clips the new content. Force a
-            # re-layout so the window height tracks the updated text.
-            self.window.queue_resize()
+            # window keeps its old height and clips the new content. Queue the
+            # resize on the scrolled content (NOT the window — a window-level
+            # queue_resize does not reflow the ScrolledWindow's child) so the
+            # window height tracks the updated text.
+            self.entries.queue_resize()
             self._relayout()
             return
 
