@@ -37,7 +37,7 @@ translation, and Piper for TTS.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        omarchy-live-translator                   │
+│                        omatranslate                             │
 │                                                                 │
 │  ┌──────────────────┐   ┌──────────────┐   ┌────────────┐       │
 │  │  NeMo-Speech.cpp │──▶│ LibreTranslate│──▶│  Piper TTS │       │
@@ -285,8 +285,9 @@ The controller process and overlay state machine are specified in
       current clipboard text in both directions (auto-detect en/es), ready to
       paste. Direction follows the configured language pair.
 - [x] **Plugin naming**: renamed the plugin/widget to `OmaTranslate`
-      (`bstail.omatranslate`). Underlying services/subprocesses/state dirs keep
-      the `omarchy-live-translator` naming for now (rename is a later task).
+      (`bstail.omatranslate`). The GitHub repo, systemd service, and
+      state/config/share dirs were also renamed to `omatranslate` (2026-09-16).
+      The internal `olt` shorthand (olt-ctl, olt.log, olt-overlay) is unchanged.
 - [ ] **Localized panel**: default panel language follows the OS locale (en /
       es-LatAm for now), user-overridable in settings.
 - [ ] **Auto-detect input level (gating)** — user idea, agreed in principle: gate

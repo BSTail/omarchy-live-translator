@@ -1,4 +1,4 @@
-# Session Memory — omarchy-live-translator (plugin name: OmaTranslate)
+# Session Memory — omatranslate (plugin name: OmaTranslate)
 
 Paste this into a fresh session to restore context.
 
@@ -72,12 +72,12 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   (deprecation). User said to ignore it.
 
 ## Paths
-- Deployed source: `~/.local/share/omarchy-live-translator/src/olt/`
-- Config: `~/.config/omarchy-live-translator/config.toml`
+- Deployed source: `~/.local/share/omatranslate/src/olt/`
+- Config: `~/.config/omatranslate/config.toml`
 - Widget: `~/.config/omarchy/plugins/bstail.omatranslate/` (manifest.json, BarWidget.qml, Panel.qml)
-- systemd user units: `omarchy-live-translator.service`, `libretranslate-live.service`
+- systemd user units: `omatranslate.service`, `libretranslate-live.service`
 - CLI: `~/.local/bin/olt-ctl` (ptt_start/ptt_stop/speak/clear/clear_logs/pause_incoming/status/diagnostics)
-- Logs/events: `~/.local/state/omarchy-live-translator/` (olt.log, events.jsonl)
+- Logs/events: `~/.local/state/omatranslate/` (olt.log, events.jsonl)
 - Git repo (source of truth): `BSTail/omatranslate` (renamed from
   `BSTail/omarchy-live-translator` on 2026-09-16; GitHub redirects the old URL),
   local working clone at the repo root (this dir).
@@ -273,7 +273,7 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   reference). Streaming model produces extra fluent-looking content on long
   continuous speech (cause unverified). Accuracy ≈ 6–7/10. Pre-processing /
   right_context / language prompt / punctuation / batching don't help.
-- Analyze the recorded daughter WAVs in `~/.local/state/omarchy-live-translator/debug/`
+- Analyze the recorded daughter WAVs in `~/.local/state/omatranslate/debug/`
   (level/bandwidth/silence) to explain why child speech is still hard. NOTE:
   match each WAV to the event timestamp; the newest WAV is often post-audio
   silence (see workarounds).
@@ -339,10 +339,11 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   BarWidget, Panel header, tooltip, README. Bar layout in
   `~/.config/omarchy/shell.json` updated to `bstail.omatranslate`.
 - Old plugin dir moved to `~/.config/omarchy/plugins.old/` (out of active
-  plugins). Underlying services/subprocesses/state dirs STILL use
-  `omarchy-live-translator` naming (rename deferred — user said keep it simple).
-  The GitHub repo WAS renamed to `omatranslate` (2026-09-16); the service/state
-  dir rename remains deferred.
+  plugins). Full rename to **omatranslate** completed 2026-09-16: GitHub repo,
+  systemd service (`omatranslate.service`), and state/config/share dirs
+  (`~/.local/state/omatranslate`, `~/.config/omatranslate`,
+  `~/.local/share/omatranslate`). The internal `olt` shorthand (olt-ctl,
+  olt.log, olt-overlay) is unchanged.
 - User registered omatranslate.com — do NOT reference the dot-com anywhere yet.
 
 ## Panel theming (2026-09-14)
@@ -416,7 +417,7 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 - No clipboard history manager on this machine (no cliphist/copyq/clipman);
   Wayland clipboard is single-slot, so "clear history" = `wl-copy --clear`.
 - OCR config: `[clipboard] ocr_enabled/ocr_psm/ocr_lang/tessdata_dir`.
-  Tessdata shipped at `~/.local/share/omarchy-live-translator/tessdata/`
+  Tessdata shipped at `~/.local/share/omatranslate/tessdata/`
   (eng + spa traineddata; no root needed). `spa.traineddata` is from
   tesseract-ocr/tessdata_fast (2.3 MB).
 - `LibreTranslate.detect()` added (engines.py); `ClipboardConfig` added

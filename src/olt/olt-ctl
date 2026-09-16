@@ -1,5 +1,5 @@
 #!/bin/bash
-# Send a control command to the running omarchy-live-translator controller.
+# Send a control command to the running omatranslate controller.
 # Usage: olt-ctl <action> [--source <lang>] [--target <lang>]
 #        olt-ctl status
 #        olt-ctl diagnostics
@@ -25,16 +25,16 @@ if [ -z "$ACTION" ]; then
 fi
 
 if [ "$ACTION" = "diagnostics" ]; then
-    echo "=== omarchy-live-translator diagnostics ==="
+    echo "=== omatranslate diagnostics ==="
     echo
     echo "--- service state ---"
-    systemctl --user is-active omarchy-live-translator.service libretranslate-live.service 2>&1
+    systemctl --user is-active omatranslate.service libretranslate-live.service 2>&1
     echo
     echo "--- controller status ---"
     curl -fsS --max-time 3 http://127.0.0.1:8670/status 2>&1 || echo "(controller not responding)"
     echo
     echo "--- latency summary (events.jsonl) ---"
-    EVENTS="$HOME/.local/state/omarchy-live-translator/events.jsonl"
+    EVENTS="$HOME/.local/state/omatranslate/events.jsonl"
     if [ -f "$EVENTS" ]; then
         python3 - "$EVENTS" <<'EOF'
 import json, sys
@@ -75,7 +75,7 @@ EOF
     fi
     echo
     echo "--- recent log (olt) ---"
-    journalctl --user -u omarchy-live-translator.service --no-pager -n 40 2>&1
+    journalctl --user -u omatranslate.service --no-pager -n 40 2>&1
     echo
     echo "--- recent log (libretranslate-live) ---"
     journalctl --user -u libretranslate-live.service --no-pager -n 20 2>&1

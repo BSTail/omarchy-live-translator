@@ -1,6 +1,6 @@
 # Theming the overlay on Omarchy
 
-How `omarchy-live-translator` themes its GTK4 overlay so it follows the
+How `omatranslate` themes its GTK4 overlay so it follows the
 user's active Omarchy theme dynamically. Reuse this pattern for any future
 GTK4 window that must match Omarchy's look.
 

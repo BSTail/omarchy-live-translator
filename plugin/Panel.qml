@@ -195,7 +195,7 @@ Panel {
     id: svcProc
     property string action: ""
     command: ["systemctl", "--user", svcProc.action,
-              "omarchy-live-translator.service", "libretranslate-live.service"]
+              "omatranslate.service", "libretranslate-live.service"]
     onExited: Qt.callLater(root.refreshStatus)
   }
 

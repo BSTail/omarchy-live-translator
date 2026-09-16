@@ -1,13 +1,13 @@
-# omarchy-live-translator configuration
-# Copy to ~/.config/omarchy-live-translator/config.toml and edit as needed.
+# omatranslate configuration
+# Copy to ~/.config/omatranslate/config.toml and edit as needed.
 
 control_port = 8670
-log_dir = "~/.local/state/omarchy-live-translator"
+log_dir = "~/.local/state/omatranslate"
 log_level = "INFO"
 
 # Testing aid: dump every capture to WAV for waveform inspection.
 debug_capture = true
-debug_dir = "~/.local/state/omarchy-live-translator/debug"
+debug_dir = "~/.local/state/omatranslate/debug"
 debug_keep = 20
 debug_roll_sec = 600
 debug_silence_sec = 60

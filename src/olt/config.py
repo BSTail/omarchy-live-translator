@@ -1,4 +1,4 @@
-"""Configuration loading for omarchy-live-translator.
+"""Configuration loading for omatranslate.
 
 Reads a small TOML file. Defaults live here so the shipped config only needs
 to override what differs on the user's machine.
@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_CONFIG_PATHS = (
-    Path.home() / ".config" / "omarchy-live-translator" / "config.toml",
+    Path.home() / ".config" / "omatranslate" / "config.toml",
 )
 
 
@@ -123,7 +123,7 @@ class ClipboardConfig:
     # Directory the OCR language data is read from. Ships with spa+eng
     # traineddata under the plugin's own data dir (no root needed to drop them
     # into /usr/share/tessdata).
-    tessdata_dir: str = str(Path.home() / ".local" / "share" / "omarchy-live-translator" / "tessdata")
+    tessdata_dir: str = str(Path.home() / ".local" / "share" / "omatranslate" / "tessdata")
 
 
 @dataclass
@@ -145,13 +145,13 @@ class Config:
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     clipboard: ClipboardConfig = field(default_factory=ClipboardConfig)
     control_port: int = 8670
-    log_dir: str = str(Path.home() / ".local" / "state" / "omarchy-live-translator")
+    log_dir: str = str(Path.home() / ".local" / "state" / "omatranslate")
     log_level: str = "INFO"
     # Testing aid: when enabled, every capture is dumped to a timestamped WAV
     # file in debug_dir so waveforms can be inspected (level, bandwidth,
     # silence). debug_keep bounds how many capture files are retained.
     debug_capture: bool = True
-    debug_dir: str = str(Path.home() / ".local" / "state" / "omarchy-live-translator" / "debug")
+    debug_dir: str = str(Path.home() / ".local" / "state" / "omatranslate" / "debug")
     debug_keep: int = 20
     # Roll the debug WAV after this many seconds. A monitor capture stays open
     # across idle stretches (the incoming loop only closes it when a

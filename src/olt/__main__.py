@@ -1,4 +1,4 @@
-"""Entry point for omarchy-live-translator."""
+"""Entry point for omatranslate."""
 
 from .controller import main
 

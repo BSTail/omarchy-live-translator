@@ -1,4 +1,4 @@
-"""Logging and error reporting for omarchy-live-translator.
+"""Logging and error reporting for omatranslate.
 
 Every component logs through this module. Logs go to stderr (visible in the
 systemd journal) and, when a log directory is configured, to a rotating file.
@@ -23,7 +23,7 @@ import time
 import traceback
 from pathlib import Path
 
-APP_NAME = "omarchy-live-translator"
+APP_NAME = "omatranslate"
 
 # A single greppable tag for all messages, so `journalctl -t` and `grep` work.
 LOGGER_NAME = "olt"

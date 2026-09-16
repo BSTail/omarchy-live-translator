@@ -1,6 +1,6 @@
 # Controller Process & Overlay State Machine
 
-This describes the runtime design for `omarchy-live-translator`. The goal is a
+This describes the runtime design for `omatranslate`. The goal is a
 clean, lightweight controller that glues already-proven local tools together and
 drives a single floating overlay. Design principles:
 
@@ -23,7 +23,7 @@ Two coexisting, lightweight local speech stacks:
 | Stack | Plugin | Engine | Job |
 |---|---|---|---|
 | Voxtype (unchanged) | `omarchy-bilingual-voxtype` | Whisper `small` (Vulkan) | Dictation into any app (F9) |
-| NeMo (this plugin) | `omarchy-live-translator` | Nemotron 3.5 ASR 0.6B (Vulkan) | Live call translation (F10+) |
+| NeMo (this plugin) | `omatranslate` | Nemotron 3.5 ASR 0.6B (Vulkan) | Live call translation (F10+) |
 
 They do not share a daemon and do not overlap. Voxtype is not modified.
 
@@ -261,14 +261,14 @@ inside `omarchy-shell`, so it stays visible even while the plugin is stopped.
 
 ### Start / Stop
 
-- **Start** = `systemctl --user start omarchy-live-translator.service libretranslate-live.service`
-- **Stop** = `systemctl --user stop omarchy-live-translator.service libretranslate-live.service`
+- **Start** = `systemctl --user start omatranslate.service libretranslate-live.service`
+- **Stop** = `systemctl --user stop omatranslate.service libretranslate-live.service`
 
 Stopping halts **only this plugin's** services:
 
 | Service | Stopped by widget | Notes |
 |---|---|---|
-| `omarchy-live-translator.service` | yes | controller + `nemo-speech serve` |
+| `omatranslate.service` | yes | controller + `nemo-speech serve` |
 | `libretranslate-live.service` (port 5001) | yes | this plugin's translation service |
 | `libretranslate.service` (port 5000) | **no** | belongs to the dictation plugin |
 | `voxtype.service` | **no** | belongs to the dictation plugin |
