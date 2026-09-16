@@ -691,6 +691,10 @@ class Controller:
         # Stall-watchdog state: when the gate re-opens on speech we arm a
         # deadline; if no delta arrives before it (while still open) the stream
         # is wedged (the upstream zero-PCM bug) and we recycle the session.
+        # The watchdog only arms once the stream has already produced at least
+        # one delta (`onset_delta_count > 0`): the *first* delta after a fresh
+        # stream can legitimately take a while (cold encoder), so it must never
+        # trip the recycle.
         onset_mono: float | None = None
         onset_delta_count = 0
         # Silence gate is only meaningful in multimedia mode (continuous media
@@ -769,6 +773,7 @@ class Controller:
                         gate is not None
                         and gate.open
                         and onset_mono is not None
+                        and onset_delta_count > 0
                         and delta_count == onset_delta_count
                         and (time.monotonic() - onset_mono) > _STALL_WATCHDOG_S
                     ):
