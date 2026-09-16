@@ -143,6 +143,14 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
     a fresh `incoming started` with the current gen.
 
 ## Current investigation / next up (user's priority, 2026-09-15)
+- **NEXT BUG (user's priority): overlay fixed-height clipping.** The overlay
+  translation window has a too-short FIXED height that clips the bottom of
+  longer translated sentences. Fix: make the window height track content
+  (auto-size, capped at screen height, scroll only when at the cap). Lives in
+  `src/olt/overlay.py`. Not started yet.
+- **CLOSED OUT — the idle-gap "missing-popup" bug.** (See the (a)+(b)-lite
+  workaround note below and README.) Root cause was upstream; filed as #48 and
+  worked around locally; verified with 20s and 2-minute idle-gap tests.
 - **ROOT CAUSE FOUND — it is an IDLE bug, not a startup bug (user's call, now
   proven).** After a clip finalizes, a long run of *zero-PCM silence* fed to
   the streaming RNNT server makes the next clip produce NO deltas and NO
@@ -178,15 +186,18 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   error (previously hot-looped ECONNREFUSED every 2s after a crash), and
   `NemoASR.restart()` was added. Deployed + verified: two post-restart clips
   translated; the idle-gap failure has not re-fired since.
-- **Workaround (a)+(b)-lite IMPLEMENTED (commit 5de20c3).** The silence gate
-  now goes *wire-silent* when closed: on close it emits a bounded run of
-  trailing silence (equal to the EOU window, so token-silence EOU still fires)
-  and then sends NO frames until the next re-open. This removes the zero-PCM
-  trigger entirely. A stall watchdog (b-lite) recycles the stream session if
-  the gate is open with speech flowing but no delta arrives within 1s. Both
-  deployed + service restarted clean. (c) Silero VAD EOU remains deferred.
-  VERIFY live: next clip after a long idle still translates, and the
-  `.completed` final still fires after the trailing-silence run.
+- **Workaround (a)+(b)-lite IMPLEMENTED + VERIFIED (commits 5de20c3, a7f6277).**
+  The silence gate now goes *wire-silent* when closed: on close it emits a
+  bounded run of trailing silence (equal to the EOU window, so token-silence EOU
+  still fires) and then sends NO frames until the next re-open. This removes the
+  zero-PCM trigger entirely. A stall watchdog (b-lite) recycles the stream
+  session if the gate is open with speech flowing but no delta arrives within 1s
+  — armed only AFTER the stream has produced its first delta (a7f6277 fixes a
+  false trip on the cold first utterance). (c) Silero VAD EOU remains deferred.
+  **LIVE TESTS (both passed):** clip1 → 20s idle gap → clip2: both translated
+  (clip1 54→46 chars, clip2 36→65 chars). clip1 → **2-minute** idle gap → clip2:
+  both translated (clip1 58→46, clip2 36→50), no stall, no watchdog trip, stream
+  stayed open the whole time. User confirmed the on-screen result matches.
 - **Senior-review course correction (still holds):** upstream issue #40 / PR
   #41 document premature EOU and hard-reset corruption, not this stall. Do NOT
   cherry-pick PR #41 or add gate-triggered `input_audio_buffer.commit`.

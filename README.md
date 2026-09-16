@@ -191,6 +191,18 @@ The controller process and overlay state machine are specified in
       language prompt, punctuation, and batching do not improve it. Accuracy on
       real speech ≈ 6–7/10. Corrected jiwer WER figures live in the To-do list
       (the original difflib numbers were not valid WER).
+- [x] **Fixed the incoming "missing-popup" idle-gap bug (upstream NeMo).**
+      After a clip finalizes, a sustained run of *full 160 ms zero-PCM silence*
+      (what the silence gate used to emit while closed) wedges the streaming RNNT
+      server: the next clip decodes nothing (no deltas, no final). Reproduced in
+      isolation on both Vulkan and CPU backends → upstream bug, filed as
+      [NVIDIA/NeMo-Speech.cpp#48](https://github.com/NVIDIA/NeMo-Speech.cpp/issues/48).
+      Workaround shipped (a)+(b)-lite: the gate now goes **wire-silent** when
+      closed (bounded trailing silence so EOU still fires, then no frames), and a
+      stall watchdog recycles the session if speech flows with no delta. The
+      Vulkan `GGML_ASSERT(ne3 == ne13)` abort is the same upstream path (9 cores
+      on record). Also added `NemoASR.restart()` so the controller recovers a
+      crashed streaming server instead of hot-looping reconnect errors.
 
 ### In progress
 
@@ -198,6 +210,10 @@ The controller process and overlay state machine are specified in
 
 ### To do (prioritised)
 
+- [ ] **Overlay window fixed-height clipping (next bug)** — the overlay
+      translation window uses a too-short fixed height and clips the bottom of
+      longer translated sentences. Make the window height track its content
+      (dynamic/auto-size, capped at screen height with scroll), not a constant.
 - [ ] **Fix incoming-loop audio loss (critical, found in review)** — in
       `_incoming_once`, when `.completed` arrives the controller awaits NMT while
       the pump keeps pushing newly-captured audio into a stream whose results are
