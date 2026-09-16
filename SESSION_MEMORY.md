@@ -178,11 +178,15 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
   error (previously hot-looped ECONNREFUSED every 2s after a crash), and
   `NemoASR.restart()` was added. Deployed + verified: two post-restart clips
   translated; the idle-gap failure has not re-fired since.
-- **Workaround options (decide before upstream filing):** (a) keep the RMS gate
-  closed→send NO audio while quiet instead of zero-PCM (changes gate semantics;
-  verify EOU still fires); (b) periodic stream recycle on long silence; (c)
-  VAD-driven EOU via Silero (official alternative to token-silence). None are
-  implemented yet.
+- **Workaround (a)+(b)-lite IMPLEMENTED (commit 5de20c3).** The silence gate
+  now goes *wire-silent* when closed: on close it emits a bounded run of
+  trailing silence (equal to the EOU window, so token-silence EOU still fires)
+  and then sends NO frames until the next re-open. This removes the zero-PCM
+  trigger entirely. A stall watchdog (b-lite) recycles the stream session if
+  the gate is open with speech flowing but no delta arrives within 1s. Both
+  deployed + service restarted clean. (c) Silero VAD EOU remains deferred.
+  VERIFY live: next clip after a long idle still translates, and the
+  `.completed` final still fires after the trailing-silence run.
 - **Senior-review course correction (still holds):** upstream issue #40 / PR
   #41 document premature EOU and hard-reset corruption, not this stall. Do NOT
   cherry-pick PR #41 or add gate-triggered `input_audio_buffer.commit`.
