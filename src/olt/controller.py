@@ -25,17 +25,29 @@ from .config import Config, load
 
 log = logging.get()
 
+# (b)-lite stall watchdog: after the gate re-opens on speech, if the server
+# emits no delta within this window while the gate is still open, the stream is
+# wedged and we recycle the session. A full second is safe against slow first
+# inference; a genuinely wedged stream emits nothing ever, so the extra time
+# only costs a slightly later recycle.
+_STALL_WATCHDOG_S = 1.0
+
 
 class SilenceGate:
     """Mute the monitor when it stays quiet (multimedia mode only).
 
     The incoming monitor is a continuous stream; between real audio there is
     near-silence (digital noise floor, faint system sounds). Feeding that to
-    the streaming ASR can produce hallucinated finals. This gate keeps the
-    stream flowing but replaces quiet audio with zero PCM, and only lets real
+    the streaming ASR can produce hallucinated finals. This gate only lets real
     audio through once the signal rises above the open threshold for long
     enough. A short preroll buffer is flushed on re-open so word onsets are
     not clipped.
+
+    When the gate closes it emits a bounded run of trailing silence — just long
+    enough for the server's token-silence endpointing to fire — and then goes
+    *wire-silent* (sends no frames at all). This is deliberate: a sustained run
+    of full zero-PCM frames (the previous behaviour) wedges the streaming RNNT
+    server (NVIDIA/NeMo-Speech.cpp#48), while wire silence is safe.
 
     RMS is computed on 16 kHz mono s16le samples.
     """
@@ -47,15 +59,18 @@ class SilenceGate:
         open_ms: int,
         close_ms: int,
         preroll_ms: int,
+        trailing_ms: float,
     ):
         self.open_rms = max(0.0, open_rms)
         self.close_rms = max(0.0, close_rms)
         self.open_ms = max(0, open_ms)
         self.close_ms = max(0, close_ms)
         self.preroll_ms = max(0, preroll_ms)
+        self.trailing_ms = max(0.0, trailing_ms)
         self._open = True
         self._loud_ms = 0.0
         self._quiet_ms = 0.0
+        self._trailing_left_ms = 0.0
         self._preroll: bytearray = bytearray()
         self._preroll_cap = int(audio.RATE * 2 * preroll_ms / 1000)
 
@@ -70,10 +85,10 @@ class SilenceGate:
         samples = struct.unpack(f"<{n}h", chunk)
         return math.sqrt(sum(s * s for s in samples) / n)
 
-    def process(self, chunk: bytes, chunk_ms: int) -> bytes:
-        """Return the audio to forward (possibly zero-filled) for this chunk."""
+    def process(self, chunk: bytes, chunk_ms: int) -> bytes | None:
+        """Return the audio to forward for this chunk, or ``None`` to send none."""
         if not chunk:
-            return chunk
+            return None
         rms = self._rms(chunk)
         if self._open:
             if rms <= self.close_rms:
@@ -81,15 +96,17 @@ class SilenceGate:
                 if self._quiet_ms >= self.close_ms:
                     self._open = False
                     self._quiet_ms = 0.0
+                    self._trailing_left_ms = self.trailing_ms
                     log.info(
                         "silence gate closed (rms %.0f < %.0f for %dms)",
                         rms, self.close_rms, self.close_ms,
                     )
-                    return bytes(len(chunk))
+                else:
+                    return chunk
             else:
                 self._quiet_ms = 0.0
-            return chunk
-        # Closed: buffer real audio as preroll; forward silence otherwise.
+                return chunk
+        # Closed (or just closed): gate real speech as preroll.
         if rms > self.open_rms:
             self._loud_ms += chunk_ms
             self._preroll.extend(chunk)
@@ -98,6 +115,7 @@ class SilenceGate:
             if self._loud_ms >= self.open_ms:
                 self._open = True
                 self._loud_ms = 0.0
+                self._trailing_left_ms = 0.0
                 preroll = bytes(self._preroll)
                 self._preroll.clear()
                 log.info(
@@ -107,7 +125,11 @@ class SilenceGate:
                 return preroll + chunk
         else:
             self._loud_ms = 0.0
-        return bytes(len(chunk))
+        # Still closed: bounded trailing silence, then wire silence.
+        if self._trailing_left_ms > 0:
+            self._trailing_left_ms = max(0.0, self._trailing_left_ms - chunk_ms)
+            return bytes(len(chunk))
+        return None
 
 
 class Controller:
@@ -643,7 +665,6 @@ class Controller:
         # the moment each final is emitted; combined with the server's
         # `audio_processed` (stream-global seconds) this bounds the utterance's
         # audio for offline re-transcription.
-        chunk_samples = int(audio.RATE * self.cfg.chunk_ms / 1000)
         captured_bytes = 0
         # Rolling ring of raw captured PCM16 (bytes). Offline re-transcription
         # needs the *final* utterance's audio, which started before this final
@@ -667,6 +688,11 @@ class Controller:
         # `ring_base` = bytes already trimmed off the front; a stored utterance
         # offset is absolute (ring_base + index) and converted back on snapshot.
         ring_base = 0
+        # Stall-watchdog state: when the gate re-opens on speech we arm a
+        # deadline; if no delta arrives before it (while still open) the stream
+        # is wedged (the upstream zero-PCM bug) and we recycle the session.
+        onset_mono: float | None = None
+        onset_delta_count = 0
         # Silence gate is only meaningful in multimedia mode (continuous media
         # audio). In live-call mode audio flows unfiltered.
         gate = None
@@ -677,10 +703,14 @@ class Controller:
                 self.cfg.incoming.gate_open_ms,
                 self.cfg.incoming.gate_close_ms,
                 self.cfg.incoming.gate_preroll_ms,
+                # Trailing silence after close keeps token-silence EOU firing
+                # before the stream goes wire-silent.
+                eou_ms,
             )
         try:
             async def pump():
                 nonlocal captured_bytes, utt_start, utt_end, ring_base
+                nonlocal onset_mono, onset_delta_count
                 try:
                     while True:
                         chunk = await cap.read_chunk(self.cfg.chunk_ms)
@@ -693,6 +723,8 @@ class Controller:
                                 # Gate just opened: the utterance starts at the
                                 # preroll+chunk about to be appended.
                                 utt_start = ring_base + len(self._incoming_ring)
+                                onset_mono = time.monotonic()
+                                onset_delta_count = delta_count
                                 log.info(
                                     "gate opened (stream %.2fs, preroll+chunk %d bytes)",
                                     captured_bytes / (audio.RATE * 2), len(chunk),
@@ -702,10 +734,15 @@ class Controller:
                                 # trailing silence) ends here, before the zero
                                 # chunk about to be appended.
                                 utt_end = ring_base + len(self._incoming_ring)
+                                onset_mono = None
                                 log.info(
                                     "gate closed (stream %.2fs)",
                                     captured_bytes / (audio.RATE * 2),
                                 )
+                            if chunk is None:
+                                # Idle: wire silence. This is what avoids the
+                                # upstream zero-PCM wedge during long quiet runs.
+                                continue
                         await stream.send_audio(chunk)
                         if self.cfg.asr.offline_enabled:
                             self._incoming_ring.extend(chunk)
@@ -721,7 +758,32 @@ class Controller:
                 except Exception as exc:
                     log.error("incoming pump error: %s", exc)
 
+            async def stall_watchdog():
+                # Recycle the session if speech has been flowing (gate open)
+                # since a re-open with no delta arriving. Closing the stream
+                # ends `stream.events()` and lets `_incoming_once` return, which
+                # makes the outer `incoming()` loop reconnect on a fresh session.
+                while True:
+                    await asyncio.sleep(0.1)
+                    if (
+                        gate is not None
+                        and gate.open
+                        and onset_mono is not None
+                        and delta_count == onset_delta_count
+                        and (time.monotonic() - onset_mono) > _STALL_WATCHDOG_S
+                    ):
+                        log.warning(
+                            "stall watchdog: gate open %.0fms with no deltas; "
+                            "recycling stream session",
+                            (time.monotonic() - onset_mono) * 1000,
+                        )
+                        await stream.close()
+                        return
+
             pump_task = asyncio.create_task(pump())
+            watchdog_task = (
+                asyncio.create_task(stall_watchdog()) if gate is not None else None
+            )
             try:
                 async for ev in stream.events():
                     t = ev.get("type")
@@ -782,6 +844,8 @@ class Controller:
                     "incoming stream ended (gen %d, deltas %d, other events %s)",
                     gen, delta_count, other_events or "{}",
                 )
+                if watchdog_task is not None:
+                    watchdog_task.cancel()
                 pump_task.cancel()
                 try:
                     await pump_task

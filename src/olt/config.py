@@ -65,10 +65,12 @@ class IncomingConfig:
     multimedia: bool = True
     multimedia_endpointing_ms: int = 2500
     # Silence gate (multimedia mode only): when the monitor signal stays below
-    # `gate_close_rms` for `gate_close_ms`, incoming audio is muted (zero PCM)
-    # until it rises above `gate_open_rms` for `gate_open_ms`. This keeps idle
-    # speaker noise from producing hallucinated finals. A short preroll buffer
-    # is flushed on re-open so word onsets are not clipped.
+    # `gate_close_rms` for `gate_close_ms`, incoming audio is muted (wire
+    # silence after a brief trailing-silence run) until it rises above
+    # `gate_open_rms` for `gate_open_ms`. This keeps idle speaker noise from
+    # producing hallucinated finals, and the wire-silent idle avoids the
+    # upstream zero-PCM wedge (NeMo-Speech.cpp#48). A short preroll buffer is
+    # flushed on re-open so word onsets are not clipped.
     gate_enabled: bool = True
     gate_open_rms: float = 200.0
     gate_close_rms: float = 100.0
