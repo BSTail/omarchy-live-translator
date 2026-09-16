@@ -78,7 +78,9 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 - systemd user units: `omarchy-live-translator.service`, `libretranslate-live.service`
 - CLI: `~/.local/bin/olt-ctl` (ptt_start/ptt_stop/speak/clear/clear_logs/pause_incoming/status/diagnostics)
 - Logs/events: `~/.local/state/omarchy-live-translator/` (olt.log, events.jsonl)
-- Git repo (source of truth): `BSTail/omarchy-live-translator`, local clone `/tmp/opencode/olt`
+- Git repo (source of truth): `BSTail/omatranslate` (renamed from
+  `BSTail/omarchy-live-translator` on 2026-09-16; GitHub redirects the old URL),
+  local working clone at the repo root (this dir).
 
 ## Last completed tasks
 1. Capture latency fix: `parec --latency-msec 10` (was ~2 s buffered latency
@@ -339,6 +341,8 @@ Offline bilingual (en↔es) live speech-translation plugin for Omarchy Linux
 - Old plugin dir moved to `~/.config/omarchy/plugins.old/` (out of active
   plugins). Underlying services/subprocesses/state dirs STILL use
   `omarchy-live-translator` naming (rename deferred — user said keep it simple).
+  The GitHub repo WAS renamed to `omatranslate` (2026-09-16); the service/state
+  dir rename remains deferred.
 - User registered omatranslate.com — do NOT reference the dot-com anywhere yet.
 
 ## Panel theming (2026-09-14)
